@@ -90,7 +90,7 @@ pub use utils::{ReqwestRequestWrapper, UreqRequestWrapper};
 use uuid::Uuid;
 use versioning::Versioning;
 
-use crate::index_mapper::IndexMapper;
+use crate::index_mapper::{IndexMapper, UserIndex};
 use crate::processing::ProcessingTasks;
 use crate::utils::clamp_to_page_size;
 
@@ -537,7 +537,7 @@ impl IndexScheduler {
     }
 
     pub fn indexer_config(&self) -> &IndexerConfig {
-        &self.index_mapper.indexer_config
+        self.index_mapper.indexer_config()
     }
 
     /// Return the real database size (i.e.: The size **with** the free pages)
@@ -561,7 +561,7 @@ impl IndexScheduler {
             .saturating_sub(self.used_size()?))
     }
 
-    /// Return the index corresponding to the name.
+    /// Return the user index corresponding to the name.
     ///
     /// * If the index wasn't opened before, the index will be opened.
     /// * If the index doesn't exist on disk, the `IndexNotFoundError` is thrown.
@@ -574,21 +574,28 @@ impl IndexScheduler {
     /// Some configurations also can't reasonably open multiple indexes at once.
     /// If you need to fetch information from or perform an action on all indexes,
     /// see the `try_for_each_index` function.
-    pub fn index(&self, name: &str) -> Result<Index> {
+    pub fn user_index(&self, name: &str) -> Result<Index> {
+        let name = UserIndex::try_from_uid(name)?;
         let rtxn = self.env.read_txn()?;
         self.index_mapper.index(&rtxn, name)
     }
 
     /// Return the boolean referring if index exists.
-    pub fn index_exists(&self, name: &str) -> Result<bool> {
+    pub fn user_index_exists(&self, name: &str) -> Result<bool> {
+        let name = UserIndex::try_from_uid(name)?;
         let rtxn = self.env.read_txn()?;
         self.index_mapper.index_exists(&rtxn, name)
     }
 
     /// Return the name of all indexes without opening them.
-    pub fn index_names(&self) -> Result<Vec<String>> {
+    pub fn user_index_names(&self) -> Result<Vec<String>> {
         let rtxn = self.env.read_txn()?;
-        self.index_mapper.index_names(&rtxn)
+        let res = self
+            .index_mapper
+            .index_names::<UserIndex>(&rtxn)?
+            .map(|i| i.map(|i| i.uid().to_string()))
+            .collect();
+        res
     }
 
     /// Attempts `f` for each index that exists known to the index scheduler.
@@ -601,17 +608,20 @@ impl IndexScheduler {
     ///
     /// If many indexes exist, this operation can take time to complete (in the order of seconds for a 1000 of indexes) as it needs to open
     /// all the indexes.
-    pub fn try_for_each_index<U, V>(&self, f: impl FnMut(&str, &Index) -> Result<U>) -> Result<V>
+    pub fn try_for_each_user_index<U, V>(
+        &self,
+        f: impl FnMut(UserIndex, &Index) -> Result<U>,
+    ) -> Result<V>
     where
         V: FromIterator<U>,
     {
         let rtxn = self.env.read_txn()?;
-        self.index_mapper.try_for_each_index(&rtxn, f)
+        self.index_mapper.try_for_each_index::<U, V, UserIndex>(&rtxn, f)
     }
 
     /// Returns the total number of indexes available for the specified filter.
     /// And a `Vec` of the index_uid + its stats
-    pub fn paginated_indexes_stats(
+    pub fn paginated_user_indexes_stats(
         &self,
         filters: &meilisearch_auth::AuthFilter,
         from: usize,
@@ -622,26 +632,18 @@ impl IndexScheduler {
         let mut total = 0;
         let mut iter = self
             .index_mapper
-            .index_mapping
-            .iter(&rtxn)?
+            .index_names::<UserIndex>(&rtxn)?
             // in case of an error we want to keep the value to return it
-            .filter(|ret| {
-                ret.as_ref().map_or(true, |(name, _uuid)| filters.is_index_authorized(name))
-            })
+            .filter(|ret| ret.as_ref().map_or(true, |name| filters.is_index_authorized(name.uid())))
             .inspect(|_| total += 1)
             .skip(from);
         let ret = iter
             .by_ref()
             .take(limit)
-            .map(|ret| ret.map_err(Error::from))
             .map(|ret| {
-                ret.and_then(|(name, uuid)| {
-                    self.index_mapper.index_stats.get(&rtxn, &uuid).map_err(Error::from).and_then(
-                        |stat| {
-                            stat.map(|stat| (name.to_string(), stat))
-                                .ok_or(Error::CorruptedTaskQueue)
-                        },
-                    )
+                ret.and_then(|name| {
+                    let stats = self.index_mapper.stats_of(&rtxn, name)?;
+                    Ok((name.uid().to_string(), stats))
                 })
             })
             .collect::<Result<Vec<(String, index_mapper::IndexStats)>>>();
@@ -1010,9 +1012,9 @@ impl IndexScheduler {
     }
 
     /// Create a new index without any associated task.
-    pub fn create_raw_index(
+    pub fn create_raw_index<'a>(
         &self,
-        name: &str,
+        name: impl IndexUid<'a>,
         date: Option<(OffsetDateTime, OffsetDateTime)>,
         shards: Option<Shards>,
     ) -> Result<Index> {
@@ -1021,13 +1023,15 @@ impl IndexScheduler {
         Ok(index)
     }
 
-    pub fn refresh_index_stats(&self, name: &str) -> Result<()> {
+    pub fn refresh_user_index_stats(&self, name: &str) -> Result<()> {
+        let name = UserIndex::try_from_uid(name)?;
+
         let mut mapper_wtxn = self.env.write_txn()?;
         let index = self.index_mapper.index(&mapper_wtxn, name)?;
         let index_rtxn = index.read_txn()?;
 
         let stats = crate::index_mapper::IndexStats::new(&index, &index_rtxn)
-            .map_err(|e| Error::from_milli(e, Some(name.to_string())))?;
+            .map_err(|e| Error::from_milli(e, Some(name.uid().to_string())))?;
 
         self.index_mapper.store_stats_of(&mut mapper_wtxn, name, &stats)?;
         mapper_wtxn.commit()?;
@@ -1126,8 +1130,10 @@ impl IndexScheduler {
         });
     }
 
-    pub fn index_stats(&self, index_uid: &str) -> Result<IndexStats> {
-        let is_indexing = self.is_index_processing(index_uid)?;
+    pub fn user_index_stats(&self, index_uid: &str) -> Result<IndexStats> {
+        let index_uid = UserIndex::try_from_uid(index_uid)?;
+
+        let is_indexing = self.is_index_processing(index_uid.uid())?;
         let rtxn = self.read_txn()?;
         let index_stats = self.index_mapper.stats_of(&rtxn, index_uid)?;
 
@@ -1343,6 +1349,7 @@ pub struct IndexStats {
 }
 
 pub use index_mapper::IndexStats as InnerIndexStats;
+pub use index_mapper::{AnyIndex, IndexUid};
 
 /// These structure are not meant to be exposed to the end user, if needed, use the meilisearch-types::webhooks structure instead.
 /// /!\ Everytime you deserialize this structure you should fill the cli_webhook later on with the `with_cli` method. /!\

@@ -347,6 +347,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::super::IndexMapper;
+    use crate::index_mapper::UserIndex;
     use crate::test_utils::IndexSchedulerHandle;
     use crate::utils::clamp_to_page_size;
     use crate::IndexScheduler;
@@ -373,7 +374,7 @@ mod tests {
         for i in 0..(5 + 1) {
             let index_name = format!("index-{i}");
             let wtxn = env.write_txn().unwrap();
-            mapper.create_index(wtxn, &index_name, None, None).unwrap();
+            mapper.create_index(wtxn, UserIndex(&index_name), None, None).unwrap();
             let txn = env.read_txn().unwrap();
             uuids.push(mapper.index_mapping.get(&txn, &index_name).unwrap().unwrap());
         }
@@ -382,7 +383,7 @@ mod tests {
 
         // get back the evicted index
         let wtxn = env.write_txn().unwrap();
-        mapper.create_index(wtxn, "index-0", None, None).unwrap();
+        mapper.create_index(wtxn, UserIndex("index-0"), None, None).unwrap();
 
         // Least recently used is now index-1
         check_first_unavailable(&mapper, uuids[1], true);
@@ -391,17 +392,20 @@ mod tests {
     #[test]
     fn resize_index() {
         let (mapper, env, _handle) = IndexMapper::test();
-        let index = mapper.create_index(env.write_txn().unwrap(), "index", None, None).unwrap();
+        let index =
+            mapper.create_index(env.write_txn().unwrap(), UserIndex("index"), None, None).unwrap();
         assert_index_size(index, mapper.index_base_map_size);
 
-        mapper.resize_index(&env.read_txn().unwrap(), "index").unwrap();
+        mapper.resize_index(&env.read_txn().unwrap(), UserIndex("index")).unwrap();
 
-        let index = mapper.create_index(env.write_txn().unwrap(), "index", None, None).unwrap();
+        let index =
+            mapper.create_index(env.write_txn().unwrap(), UserIndex("index"), None, None).unwrap();
         assert_index_size(index, mapper.index_base_map_size + mapper.index_growth_amount);
 
-        mapper.resize_index(&env.read_txn().unwrap(), "index").unwrap();
+        mapper.resize_index(&env.read_txn().unwrap(), UserIndex("index")).unwrap();
 
-        let index = mapper.create_index(env.write_txn().unwrap(), "index", None, None).unwrap();
+        let index =
+            mapper.create_index(env.write_txn().unwrap(), UserIndex("index"), None, None).unwrap();
         assert_index_size(index, mapper.index_base_map_size + mapper.index_growth_amount * 2);
     }
 

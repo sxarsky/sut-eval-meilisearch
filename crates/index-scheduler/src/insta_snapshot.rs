@@ -9,7 +9,7 @@ use meilisearch_types::tasks::{Details, Kind, Status, Task};
 use meilisearch_types::versioning::{self, VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH};
 use roaring::RoaringBitmap;
 
-use crate::index_mapper::IndexMapper;
+use crate::index_mapper::{IndexMapper, IndexUid as _, UserIndex};
 use crate::{IndexScheduler, BEI128};
 
 pub fn snapshot_index_scheduler(scheduler: &IndexScheduler) -> String {
@@ -439,12 +439,15 @@ pub fn snapshot_batch(batch: &Batch) -> String {
 
 pub fn snapshot_index_mapper(rtxn: &RoTxn, mapper: &IndexMapper) -> String {
     let mut s = String::new();
-    let names = mapper.index_names(rtxn).unwrap();
+    let names = mapper.index_names::<UserIndex>(rtxn).unwrap();
 
     for name in names {
-        let stats = mapper.stats_of(rtxn, &name).unwrap();
+        let name = name.unwrap();
+        let uid = name.uid();
+
+        let stats = mapper.stats_of(rtxn, name).unwrap();
         s.push_str(&format!(
-            "{name}: {{ number_of_documents: {}, field_distribution: {:?} }}\n",
+            "{uid}: {{ number_of_documents: {}, field_distribution: {:?} }}\n",
             stats.documents_database_stats.number_of_entries(),
             stats.field_distribution
         ));

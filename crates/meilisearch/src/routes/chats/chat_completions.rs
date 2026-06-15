@@ -23,7 +23,7 @@ use futures::StreamExt;
 use index_scheduler::filter::{
     filter_into_index_filter, filters_into_index_filters_unchecked, parse_filter,
 };
-use index_scheduler::IndexScheduler;
+use index_scheduler::{IndexScheduler, IndexUid};
 use meilisearch_auth::AuthController;
 use meilisearch_types::error::{Code, ResponseError};
 use meilisearch_types::features::{
@@ -239,19 +239,27 @@ fn setup_search_tool(
     let mut index_uids = Vec::new();
     let mut function_description = prompts.search_description.clone();
     let mut filter_description = prompts.search_filter_param.clone();
-    index_scheduler.try_for_each_index::<_, ()>(|name, index| {
+    index_scheduler.try_for_each_user_index::<_, ()>(|name, index| {
         // Make sure to skip unauthorized indexes
-        if !filters.is_index_authorized(name) {
+        if !filters.is_index_authorized(name.uid()) {
             return Ok(());
         }
 
         let rtxn = index.read_txn()?;
         let chat_config = index.chat_config(&rtxn)?;
         let index_description = chat_config.description;
-        let _ = writeln!(&mut function_description, "\n\n - {name}: {index_description}\n");
-        index_uids.push(name.to_string());
+        let _ = writeln!(
+            &mut function_description,
+            "\n\n - {name}: {index_description}\n",
+            name = name.uid()
+        );
+        index_uids.push(name.uid().to_string());
         let facet_distributions = format_facet_distributions(index, &rtxn, 10).unwrap(); // TODO do not unwrap
-        let _ = writeln!(&mut filter_description, "\n## Facet distributions of the {name} index");
+        let _ = writeln!(
+            &mut filter_description,
+            "\n## Facet distributions of the {name} index",
+            name = name.uid()
+        );
         let _ = writeln!(&mut filter_description, "{facet_distributions}");
 
         Ok(())
@@ -329,7 +337,7 @@ async fn process_search_request(
     q: Option<String>,
     filter: Option<String>,
 ) -> Result<(Index, Vec<Document>, String), ResponseError> {
-    let index = index_scheduler.index(&index_uid)?;
+    let index = index_scheduler.user_index(&index_uid)?;
     let progress = Progress::default();
     let rtxn = index.static_read_txn()?;
     let ChatConfig { description: _, prompt: _, search_parameters } = index.chat_config(&rtxn)?;

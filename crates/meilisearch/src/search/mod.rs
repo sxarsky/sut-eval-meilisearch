@@ -2484,7 +2484,7 @@ pub fn perform_similar(
 ) -> Result<SimilarResult, ResponseError> {
     let before_search = Instant::now();
     let features = index_scheduler.features();
-    let index = index_scheduler.index(&index_uid)?;
+    let index = index_scheduler.user_index(&index_uid)?;
     let rtxn = index.read_txn()?;
 
     let SimilarQuery {

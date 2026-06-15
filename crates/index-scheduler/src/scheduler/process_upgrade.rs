@@ -1,6 +1,7 @@
 use meilisearch_types::milli;
 use meilisearch_types::milli::progress::{Progress, VariableNameStep};
 
+use crate::index_mapper::{IndexUid, UserIndex};
 use crate::{Error, IndexScheduler, Result};
 
 impl IndexScheduler {
@@ -12,7 +13,7 @@ impl IndexScheduler {
         #[cfg(test)]
         self.maybe_fail(crate::test_utils::FailureLocation::ProcessUpgrade)?;
 
-        let indexes = self.index_names()?;
+        let indexes = self.user_index_names()?;
         let must_stop_processing = &self.scheduler.must_stop_processing;
 
         let shards = self.network().shards();
@@ -27,7 +28,7 @@ impl IndexScheduler {
                 i as u32,
                 indexes.len() as u32,
             ));
-            let index = self.index(uid)?;
+            let index = self.user_index(uid)?;
             let mut index_wtxn = index.write_txn()?;
             let regen_stats = milli::update::upgrade::upgrade(
                 &mut index_wtxn,
@@ -47,12 +48,15 @@ impl IndexScheduler {
 
                 // Release wtxn as soon as possible because it stops us from registering tasks
                 let mut index_schd_wtxn = self.env.write_txn()?;
-                self.index_mapper.store_stats_of(&mut index_schd_wtxn, uid, &stats)?;
+                let name = UserIndex::try_from_uid(uid)?;
+                self.index_mapper.store_stats_of(&mut index_schd_wtxn, name, &stats)?;
                 index_schd_wtxn.commit()?;
             } else {
                 index_wtxn.commit()?;
             }
         }
+
+        wip::fixme!("upgrade DSR index");
 
         Ok(())
     }
@@ -64,7 +68,7 @@ impl IndexScheduler {
         let db_path = self.scheduler.version_file_path.parent().unwrap();
         wtxn.commit()?;
 
-        let indexes = self.index_names()?;
+        let indexes = self.user_index_names()?;
 
         tracing::info!("roll backing all indexes");
         for (i, uid) in indexes.iter().enumerate() {
@@ -75,8 +79,10 @@ impl IndexScheduler {
             ));
             let index_schd_rtxn = self.env.read_txn()?;
 
+            let name = UserIndex::try_from_uid(uid)?;
+
             let rollback_outcome =
-                self.index_mapper.rollback_index(&index_schd_rtxn, uid, db_version)?;
+                self.index_mapper.rollback_index(&index_schd_rtxn, name, db_version)?;
             if !rollback_outcome.succeeded() {
                 return Err(crate::Error::RollbackFailed { index: uid.clone(), rollback_outcome });
             }

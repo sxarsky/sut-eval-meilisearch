@@ -171,7 +171,7 @@ pub fn filters_into_index_filters<'a>(
     // TODO: do remote document filtering here (linear: EXP-1027)
     // local
     for (foreign_index_uid, filter_indices) in filters_per_foreign_index.iter() {
-        let foreign_index = index_scheduler.index(foreign_index_uid.as_ref())?;
+        let foreign_index = index_scheduler.user_index(foreign_index_uid.as_ref())?;
         let foreign_rtxn = foreign_index.read_txn()?;
         let foreign_external_docids = foreign_index.external_documents_ids();
 
@@ -308,7 +308,7 @@ pub fn retrieve_foreign_keys_settings<'a>(
             continue;
         }
 
-        let index = index_scheduler.index(index_uid.as_ref())?;
+        let index = index_scheduler.user_index(index_uid.as_ref())?;
         let rtxn = index.read_txn()?;
         let foreign_keys = index
             .foreign_keys(&rtxn)?

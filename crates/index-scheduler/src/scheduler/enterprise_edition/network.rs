@@ -23,6 +23,7 @@ use meilisearch_types::tasks::network::{ExportMode, ExportShard, NetworkTopology
 use meilisearch_types::tasks::{KindWithContent, Status, Task};
 use roaring::RoaringBitmap;
 
+use crate::index_mapper::{IndexUid as _, UserIndex};
 use crate::scheduler::create_batch::Batch;
 use crate::scheduler::process_batch::ProcessBatchInfo;
 use crate::scheduler::process_export::{ExportContext, ExportOptions, TargetInstance};
@@ -108,6 +109,8 @@ impl IndexScheduler {
             network_topology_change.state(),
         ));
 
+        wip::fixme!("leader send global data (e.g. DSR) to followers");
+
         if let (Some((remotes, out_name)), Some(new_shards)) =
             (network_topology_change.export_to_process(), network_topology_change.new_shards())
         {
@@ -180,7 +183,7 @@ impl IndexScheduler {
 
         let scheduler_rtxn = self.env.read_txn()?;
 
-        let index_count = self.index_mapper.index_count(&scheduler_rtxn)?;
+        let index_count = self.index_mapper.index_count::<UserIndex>(&scheduler_rtxn)?;
 
         // when the instance is empty, we still need to tell that to remotes, as they cannot know of that fact and will be waiting for
         // data
@@ -216,16 +219,16 @@ impl IndexScheduler {
         // in other words, for each (remote, shard):
         // 1. if shard is new for remote, and local is responsible for sending shard, send full shard
         // 2. otherwise, send shard ^ resharded documents
-        self.index_mapper.try_for_each_index::<(), ()>(
+        self.index_mapper.try_for_each_index::<(), (), UserIndex>(
             &scheduler_rtxn,
             |index_uid, index| -> crate::Result<()> {
-                let err = |err| Error::from_milli(err, Some(index_uid.to_string()));
+                let err = |err| Error::from_milli(err, Some(index_uid.uid().to_string()));
 
                 let mut index_wtxn = index.write_txn()?;
 
                 progress.update_progress(
                     VariableNameStep::<processing::network::ExportIndex>::new(
-                        format!("Exporting documents from index `{index_uid}`"),
+                        format!("Exporting documents from index `{index_uid}`", index_uid=index_uid.uid()),
                         index_index,
                         index_count as u32,
                     ),
@@ -271,7 +274,7 @@ impl IndexScheduler {
                         api_key: remote.write_api_key.as_deref(),
                     };
                     let options = ExportOptions {
-                        index_uid,
+                        index_uid: index_uid.uid(),
                         payload_size: None,
                         override_settings: false,
                         export_mode:
@@ -326,30 +329,33 @@ impl IndexScheduler {
 
         let scheduler_rtxn = self.env.read_txn()?;
 
-        let index_count = self.index_mapper.index_count(&scheduler_rtxn)?;
+        let index_count = self.index_mapper.index_count::<UserIndex>(&scheduler_rtxn)?;
         let mut index_index = 0;
 
-        self.index_mapper.try_for_each_index::<(), ()>(
+        self.index_mapper.try_for_each_index::<(), (), UserIndex>(
             &scheduler_rtxn,
             |index_uid, index| -> crate::Result<()> {
                 indexer_alloc.reset();
                 let mut index_wtxn = index.write_txn()?;
 
-                let err = |err| Error::from_milli(err, Some(index_uid.to_string()));
+                let err = |err| Error::from_milli(err, Some(index_uid.uid().to_string()));
 
                 let embedders = index
                     .embedding_configs()
                     .embedding_configs(&index_wtxn)
                     .map_err(milli::Error::from)
                     .map_err(err)?;
-                let embedders = self.embedders(index_uid.to_string(), embedders)?;
+                let embedders = self.embedders(index_uid.uid().to_string(), embedders)?;
 
                 let shard_docids = index.shard_docids();
 
                 progress.update_progress(VariableNameStep::<
                     processing::network::DeleteDocumentsFromIndex,
                 >::new(
-                    format!("Deleting removed shards for index `{index_uid}`"),
+                    format!(
+                        "Deleting removed shards for index `{index_uid}`",
+                        index_uid = index_uid.uid()
+                    ),
                     index_index,
                     index_count as u32,
                 ));

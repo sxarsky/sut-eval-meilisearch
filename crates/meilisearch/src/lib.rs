@@ -41,7 +41,7 @@ use error::PayloadError;
 use extractors::payload::PayloadConfig;
 use http_client::policy::IpPolicy;
 use index_scheduler::versioning::Versioning;
-use index_scheduler::{IndexScheduler, IndexSchedulerOptions};
+use index_scheduler::{IndexScheduler, IndexSchedulerOptions, IndexUid as _};
 use meilisearch_auth::{open_auth_store_env, AuthController};
 use meilisearch_types::dynamic_search_rules::DynamicSearchRules;
 use meilisearch_types::milli::constants::VERSION_MAJOR;
@@ -609,11 +609,12 @@ fn import_dump(
         let mut index_reader = index_reader?;
         let metadata = index_reader.metadata();
         let uid = metadata.uid.clone();
-        tracing::info!("Importing index `{uid}`.");
+        let uid = index_scheduler::AnyIndex::new(&uid);
+        tracing::info!("Importing index `{uid}`.", uid = uid.uid());
 
         let date = Some((metadata.created_at, metadata.updated_at));
         // no shards at import time
-        let index = index_scheduler.create_raw_index(&metadata.uid, date, None)?;
+        let index = index_scheduler.create_raw_index(uid, date, None)?;
 
         let mut wtxn = index.write_txn()?;
 
@@ -657,7 +658,7 @@ fn import_dump(
             let reader = DocumentsBatchReader::from_reader(reader)?;
 
             let embedder_configs = index.embedding_configs().embedding_configs(&wtxn)?;
-            let embedders = index_scheduler.embedders(uid.to_string(), embedder_configs)?;
+            let embedders = index_scheduler.embedders(uid.uid().to_string(), embedder_configs)?;
             let must_stop_processing = MustStopProcessing::default();
 
             let builder = milli::update::IndexDocuments::new(
@@ -687,7 +688,7 @@ fn import_dump(
 
             let mut indexer = indexer::IndexOperations::new();
             let embedders = index.embedding_configs().embedding_configs(&rtxn)?;
-            let embedders = index_scheduler.embedders(uid.clone(), embedders)?;
+            let embedders = index_scheduler.embedders(uid.uid().to_string(), embedders)?;
 
             let mmap = unsafe { memmap2::Mmap::map(index_reader.documents_file())? };
 
@@ -732,7 +733,7 @@ fn import_dump(
 
         wtxn.commit()?;
         tracing::info!("All documents successfully imported.");
-        index_scheduler.refresh_index_stats(&uid)?;
+        index_scheduler.refresh_user_index_stats(uid.uid())?;
     }
 
     // 7. Import the queue

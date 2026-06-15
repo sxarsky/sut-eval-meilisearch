@@ -488,7 +488,7 @@ async fn search_multi_local(
 
     let progress_clone = progress.clone();
     let search_result = tokio::task::spawn_blocking(move || {
-        let index = index_scheduler.index(&index_uid)?;
+        let index = index_scheduler.user_index(&index_uid)?;
         let rtxn = index.read_txn()?;
         let deadline = index.search_deadline(&rtxn)?;
         let search_kind =
@@ -550,7 +550,7 @@ async fn search_local(
 
     let progress_clone = progress.clone();
     let search_result = tokio::task::spawn_blocking(move || {
-        let index = index_scheduler.index(&index_uid)?;
+        let index = index_scheduler.user_index(&index_uid)?;
         let rtxn = index.read_txn()?;
         let deadline = index.search_deadline(&rtxn)?;
         let search_kind =
