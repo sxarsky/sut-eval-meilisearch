@@ -1,7 +1,8 @@
+use meilisearch_types::index_uid::UserIndex;
 use meilisearch_types::milli;
 use meilisearch_types::milli::progress::{Progress, VariableNameStep};
 
-use crate::index_mapper::{IndexUid, UserIndex};
+use crate::index_mapper::IndexUid as _;
 use crate::{Error, IndexScheduler, Result};
 
 impl IndexScheduler {

@@ -4,6 +4,7 @@ use std::io::BufWriter;
 use std::sync::atomic::Ordering;
 
 use dump::IndexMetadata;
+use meilisearch_types::index_uid::AnyIndex;
 use meilisearch_types::milli::constants::RESERVED_VECTORS_FIELD_NAME;
 use meilisearch_types::milli::index::EmbeddingsWithMetadata;
 use meilisearch_types::milli::progress::{Progress, VariableNameStep};
@@ -13,7 +14,6 @@ use meilisearch_types::tasks::{Details, KindWithContent, Status, Task};
 use time::macros::format_description;
 use time::OffsetDateTime;
 
-use crate::index_mapper::{AnyIndex, IndexUid as _};
 use crate::processing::{
     AtomicBatchStep, AtomicDocumentStep, AtomicTaskStep, DumpCreationProgress,
 };

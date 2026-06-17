@@ -64,6 +64,7 @@ use meilisearch_types::features::{
 use meilisearch_types::heed::byteorder::BE;
 use meilisearch_types::heed::types::{DecodeIgnore, SerdeJson, Str, I128};
 use meilisearch_types::heed::{self, Database, Env, RoTxn, RwTxn, WithoutTls};
+use meilisearch_types::index_uid::UserIndex;
 use meilisearch_types::milli::sharding::Shards;
 use meilisearch_types::milli::update::IndexerConfig;
 use meilisearch_types::milli::vector::json_template::JsonTemplate;
@@ -90,7 +91,7 @@ pub use utils::{ReqwestRequestWrapper, UreqRequestWrapper};
 use uuid::Uuid;
 use versioning::Versioning;
 
-use crate::index_mapper::{IndexMapper, UserIndex};
+use crate::index_mapper::IndexMapper;
 use crate::processing::ProcessingTasks;
 use crate::utils::clamp_to_page_size;
 
@@ -1348,8 +1349,7 @@ pub struct IndexStats {
     pub inner_stats: InnerIndexStats,
 }
 
-pub use index_mapper::IndexStats as InnerIndexStats;
-pub use index_mapper::{AnyIndex, IndexUid};
+pub use index_mapper::{IndexStats as InnerIndexStats, IndexUid};
 
 /// These structure are not meant to be exposed to the end user, if needed, use the meilisearch-types::webhooks structure instead.
 /// /!\ Everytime you deserialize this structure you should fill the cli_webhook later on with the `with_cli` method. /!\

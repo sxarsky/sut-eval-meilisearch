@@ -5,6 +5,7 @@ use std::{fs, thread};
 
 use meilisearch_types::heed::types::{SerdeJson, Str};
 use meilisearch_types::heed::{Database, Env, RoTxn, RwTxn, WithoutTls};
+use meilisearch_types::index_uid::{AnyIndex, DsrIndex, UserIndex};
 use meilisearch_types::milli::database_stats::DatabaseStats;
 use meilisearch_types::milli::index::RollbackOutcome;
 use meilisearch_types::milli::sharding::Shards;
@@ -687,25 +688,16 @@ pub trait IndexUid<'a>: Clone + Copy {
     fn uid(&self) -> &'a str;
 }
 
-#[derive(Clone, Copy)]
-pub struct AnyIndex<'a>(&'a str);
-
-impl<'a> AnyIndex<'a> {
-    pub fn new(uid: &'a str) -> Self {
-        Self(uid)
-    }
-}
-
 impl<'a> IndexUid<'a> for AnyIndex<'a> {
     fn try_from_uid(uid: &'a str) -> Result<Self>
     where
         Self: Sized,
     {
-        Ok(Self(uid))
+        Ok(AnyIndex::new(uid))
     }
 
     fn uid(&self) -> &'a str {
-        self.0
+        AnyIndex::uid(self)
     }
 
     fn count(db: Database<Str, UuidCodec>, rtxn: &RoTxn) -> Result<u64> {
@@ -713,36 +705,20 @@ impl<'a> IndexUid<'a> for AnyIndex<'a> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct UserIndex<'a>(&'a str);
-
 impl<'a> IndexUid<'a> for UserIndex<'a> {
     fn try_from_uid(uid: &'a str) -> Result<Self>
     where
         Self: Sized,
     {
-        if uid.starts_with(".meili") {
-            Err(Error::InvalidIndexUid { index_uid: uid.to_string() })
-        } else {
-            Ok(Self(uid))
-        }
+        UserIndex::new(uid).ok_or_else(|| Error::InvalidIndexUid { index_uid: uid.to_string() })
     }
 
     fn uid(&self) -> &'a str {
-        self.0
+        UserIndex::uid(self)
     }
 
     fn count(db: Database<Str, UuidCodec>, rtxn: &RoTxn) -> Result<u64> {
         Ok(AnyIndex::count(db, rtxn)?.saturating_sub(DsrIndex::count(db, rtxn)?))
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct DsrIndex;
-
-impl DsrIndex {
-    pub const fn dsr_uid() -> &'static str {
-        ".meili_dsr"
     }
 }
 

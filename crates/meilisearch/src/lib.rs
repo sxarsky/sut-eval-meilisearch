@@ -609,7 +609,7 @@ fn import_dump(
         let mut index_reader = index_reader?;
         let metadata = index_reader.metadata();
         let uid = metadata.uid.clone();
-        let uid = index_scheduler::AnyIndex::new(&uid);
+        let uid = meilisearch_types::index_uid::AnyIndex::new(&uid);
         tracing::info!("Importing index `{uid}`.", uid = uid.uid());
 
         let date = Some((metadata.created_at, metadata.updated_at));

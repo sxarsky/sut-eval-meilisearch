@@ -28,6 +28,7 @@ use std::sync::Arc;
 
 use meilisearch_types::error::ResponseError;
 use meilisearch_types::heed::{Env, WithoutTls};
+use meilisearch_types::index_uid::AnyIndex;
 use meilisearch_types::milli::update::S3SnapshotOptions;
 use meilisearch_types::milli::{self, MustStopProcessing};
 use meilisearch_types::tasks::Status;
@@ -37,7 +38,6 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use roaring::RoaringBitmap;
 use synchronoise::SignalEvent;
 
-use crate::index_mapper::AnyIndex;
 use crate::processing::{AtomicTaskStep, BatchProgress};
 use crate::{Error, IndexScheduler, IndexSchedulerOptions, Result, TickOutcome};
 

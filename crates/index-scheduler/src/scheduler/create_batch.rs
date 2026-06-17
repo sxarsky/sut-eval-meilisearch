@@ -2,6 +2,7 @@ use std::fmt;
 use std::io::ErrorKind;
 
 use meilisearch_types::heed::RoTxn;
+use meilisearch_types::index_uid::{AnyIndex, DsrIndex};
 use meilisearch_types::milli::update::{IndexDocumentsMethod, MissingDocumentPolicy};
 use meilisearch_types::settings::{Settings, Unchecked};
 use meilisearch_types::tasks::network::{DbTaskNetwork, NetworkTopologyState, Origin};
@@ -11,7 +12,6 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::autobatcher::{self, BatchKind};
-use crate::index_mapper::AnyIndex;
 use crate::utils::ProcessingBatch;
 use crate::{Error, IndexScheduler, Result};
 
@@ -69,6 +69,11 @@ pub(crate) enum Batch {
     },
     NetworkReady {
         task: Task,
+    },
+    DsrUpdate {
+        rules: Vec<meilisearch_types::tasks::DsrUpdate>,
+        tasks: Vec<Task>,
+        must_create_index: bool,
     },
 }
 
@@ -133,7 +138,8 @@ impl Batch {
             Batch::SnapshotCreation(tasks)
             | Batch::TaskDeletions(tasks)
             | Batch::UpgradeDatabase { tasks }
-            | Batch::IndexDeletion { tasks, .. } => {
+            | Batch::IndexDeletion { tasks, .. }
+            | Batch::DsrUpdate { tasks, .. } => {
                 RoaringBitmap::from_iter(tasks.iter().map(|task| task.uid))
             }
             Batch::IndexOperation { op, .. } => match op {
@@ -181,6 +187,7 @@ impl Batch {
             | IndexDeletion { index_uid, .. }
             | IndexCompaction { index_uid, .. } => Some(index_uid),
             NetworkIndexBatch { network_task: _, inner_batch } => inner_batch.index_uid(),
+            DsrUpdate { .. } => Some(DsrIndex::dsr_uid()),
         }
     }
 }
@@ -205,6 +212,7 @@ impl fmt::Display for Batch {
             Batch::UpgradeDatabase { .. } => f.write_str("UpgradeDatabase")?,
             Batch::NetworkIndexBatch { .. } => f.write_str("NetworkTopologyChange")?,
             Batch::NetworkReady { .. } => f.write_str("NetworkTopologyChange")?,
+            Batch::DsrUpdate { .. } => f.write_str("DsrUpdate")?,
         };
         match index_uid {
             Some(name) => f.write_fmt(format_args!(" on {name:?} from tasks: {tasks:?}")),
@@ -473,6 +481,23 @@ impl IndexScheduler {
                 current_batch.processing(Some(&mut task));
                 Ok(Some(Batch::IndexSwap { task }))
             }
+            BatchKind::DsrUpdate { rules } => {
+                let tasks = self.queue.get_existing_tasks_for_processing_batch(
+                    rtxn,
+                    current_batch,
+                    rules,
+                )?;
+
+                let rules: Vec<_> = tasks
+                    .iter()
+                    .map(|task| match &task.kind {
+                        KindWithContent::DsrUpdate(update) => update.clone(),
+                        _ => unreachable!(),
+                    })
+                    .collect();
+
+                Ok(Some(Batch::DsrUpdate { rules, tasks, must_create_index }))
+            }
         }
     }
 
@@ -674,7 +699,6 @@ impl IndexScheduler {
             };
         };
 
-        wip::fixme!("unsure about any, revisit later");
         let index_uid = AnyIndex::new(index_name);
 
         let index_already_exists = self.index_mapper.exists(rtxn, index_uid)?;

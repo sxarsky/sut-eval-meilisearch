@@ -4,14 +4,18 @@ use bumpalo::collections::CollectIn;
 use bumpalo::Bump;
 use meilisearch_types::error::Code;
 use meilisearch_types::heed::RwTxn;
+use meilisearch_types::index_uid::DsrIndex;
 use meilisearch_types::milli::documents::PrimaryKey;
 use meilisearch_types::milli::progress::{EmbedderStats, Progress};
-use meilisearch_types::milli::update::new::indexer::{self, UpdateByFunction};
+use meilisearch_types::milli::update::new::indexer::{
+    self, IndexOperations, Payload, UpdateByFunction,
+};
 use meilisearch_types::milli::update::DocumentAdditionResult;
+use meilisearch_types::milli::vector::RuntimeEmbedders;
 use meilisearch_types::milli::{self, ChannelCongestion};
 use meilisearch_types::network::Network;
 use meilisearch_types::settings::apply_settings_to_builder;
-use meilisearch_types::tasks::{Details, KindWithContent, Status, Task};
+use meilisearch_types::tasks::{Details, DsrUpdate, KindWithContent, Status, Task};
 use meilisearch_types::Index;
 use roaring::RoaringBitmap;
 
@@ -563,5 +567,115 @@ impl IndexScheduler {
                 Ok((tasks, None))
             }
         }
+    }
+
+    pub(crate) fn apply_dsr_update<'i>(
+        &self,
+        index_wtxn: &mut RwTxn<'i>,
+        index: &'i Index,
+        updates: &'i [DsrUpdate],
+        embedder_stats: Arc<EmbedderStats>,
+        mut tasks: Vec<Task>,
+        progress: &Progress,
+    ) -> Result<(Vec<Task>, Option<ChannelCongestion>)> {
+        wip::fixme!("allow for rule deletion");
+        let indexer_alloc = Bump::new();
+        let from_milli = |err| Error::from_milli(err, Some(DsrIndex::dsr_uid().to_owned()));
+        let started_processing_at = std::time::Instant::now();
+
+        progress.update_progress(DocumentOperationProgress::RetrievingConfig);
+        let must_stop_processing = self.scheduler.must_stop_processing.clone();
+
+        let rtxn = index.read_txn()?;
+        let db_fields_ids_map = index.fields_ids_map(&rtxn)?;
+        let mut new_fields_ids_map = db_fields_ids_map.clone();
+
+        let mut indexer = IndexOperations::new();
+
+        for update in updates {
+            match update {
+                DsrUpdate::CreateOrUpdate(dynamic_search_rule) => {
+                    let mut vec = bumpalo::collections::Vec::new_in(&indexer_alloc);
+                    // unwrap: vec writing cannot fail + dynamic search rule always serializable
+                    serde_json::to_writer(&mut vec, dynamic_search_rule).unwrap();
+                    let vec = vec.into_bump_slice();
+                    indexer.push_raw_operation(Payload::Replace {
+                        payload: vec,
+                        on_missing_document: milli::update::MissingDocumentPolicy::Create,
+                    });
+                }
+                DsrUpdate::Deletion(to_delete) => {
+                    let to_delete = &*indexer_alloc.alloc_str(to_delete.as_str());
+                    let mut vec = bumpalo::collections::Vec::new_in(&indexer_alloc);
+                    vec.push(to_delete);
+                    let vec = vec.into_bump_slice();
+                    indexer.push_raw_operation(Payload::DeletionByExternalIds(vec));
+                }
+            }
+        }
+
+        let indexer_config = self.index_mapper.indexer_config();
+        let pool = &indexer_config.thread_pool;
+
+        progress.update_progress(DocumentOperationProgress::ComputingDocumentChanges);
+
+        let (document_changes, operation_stats, primary_key) = indexer
+            .into_changes(
+                &indexer_alloc,
+                index,
+                &rtxn,
+                Some("uid"),
+                &mut new_fields_ids_map,
+                &must_stop_processing,
+                progress.clone(),
+                None,
+            )
+            .map_err(from_milli)?;
+
+        progress.update_progress(DocumentOperationProgress::ReadingPayloadStats);
+        let mut candidates_count = 0;
+        for (stats, task) in operation_stats.into_iter().zip(&mut tasks) {
+            candidates_count += stats.document_count;
+            match stats.error {
+                Some(error) => {
+                    task.status = Status::Failed;
+                    task.error = Some(milli::Error::UserError(error).into());
+                }
+                None => task.status = Status::Succeeded,
+            }
+        }
+
+        progress.update_progress(DocumentOperationProgress::Indexing);
+        let mut congestion = None;
+        let embedders = RuntimeEmbedders::default();
+        if tasks.iter().any(|res| res.error.is_none()) {
+            congestion = Some(
+                indexer::index(
+                    index_wtxn,
+                    index,
+                    pool,
+                    indexer_config.grenad_parameters(),
+                    &db_fields_ids_map,
+                    new_fields_ids_map,
+                    primary_key,
+                    &document_changes,
+                    embedders,
+                    &must_stop_processing,
+                    progress,
+                    self.ip_policy(),
+                    &embedder_stats,
+                )
+                .map_err(from_milli)?,
+            );
+
+            let addition = DocumentAdditionResult {
+                indexed_documents: candidates_count,
+                number_of_documents: index.number_of_documents(index_wtxn).map_err(from_milli)?,
+            };
+
+            tracing::info!(indexing_result = ?addition, processed_in = ?started_processing_at.elapsed(), "DSR update done");
+        }
+
+        Ok((tasks, congestion))
     }
 }

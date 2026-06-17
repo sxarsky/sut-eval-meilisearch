@@ -11,7 +11,7 @@ use meilisearch_types::milli::update::IndexDocumentsMethod;
 use meilisearch_types::settings::Unchecked;
 use meilisearch_types::tasks::network::{DbTaskNetwork, NetworkTopologyChange};
 use meilisearch_types::tasks::{
-    Details, ExportIndexSettings, IndexSwap, KindWithContent, Status, Task, TaskId,
+    Details, DsrUpdate, ExportIndexSettings, IndexSwap, KindWithContent, Status, Task, TaskId,
 };
 use meilisearch_types::InstanceUid;
 use roaring::RoaringBitmap;
@@ -166,6 +166,7 @@ pub enum KindDump {
         index_uid: String,
     },
     NetworkTopologyChange(NetworkTopologyChange),
+    DsrUpdate(DsrUpdate),
 }
 
 impl From<Task> for TaskDump {
@@ -255,6 +256,7 @@ impl From<KindWithContent> for KindDump {
             KindWithContent::NetworkTopologyChange(network_topology_change) => {
                 KindDump::NetworkTopologyChange(network_topology_change)
             }
+            KindWithContent::DsrUpdate(update) => KindDump::DsrUpdate(update),
         }
     }
 }

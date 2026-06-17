@@ -61,7 +61,7 @@ pub struct ActiveRules<'a> {
     positioning_rules: Vec<Positioning<'a>>,
 }
 
-pub fn collect_active_rules<'a>(
+fn collect_active_rules<'a>(
     rules: &'a DynamicSearchRules,
     ctx: &DynamicSearchContext<'_>,
 ) -> ActiveRules<'a> {

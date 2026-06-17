@@ -120,7 +120,7 @@ pub enum Error {
     InvalidIndexUid { index_uid: String },
     #[error(
         "Expected DSR-specific uid `{}`, got `{index_uid}`",
-        crate::index_mapper::DsrIndex::dsr_uid()
+        meilisearch_types::index_uid::DsrIndex::dsr_uid()
     )]
     ExpectedDsrUid { index_uid: String },
     #[error("Task `{0}` not found.")]

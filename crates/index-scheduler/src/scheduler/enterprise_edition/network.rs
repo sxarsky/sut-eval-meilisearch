@@ -10,6 +10,7 @@ use bumpalo::Bump;
 use hashbrown::hash_map::EntryRef;
 use http_client::reqwest::header::AUTHORIZATION;
 use meilisearch_types::heed::RoTxn;
+use meilisearch_types::index_uid::UserIndex;
 use meilisearch_types::milli::documents::PrimaryKey;
 use meilisearch_types::milli::heed::RwTxn;
 use meilisearch_types::milli::progress::{EmbedderStats, Progress, VariableNameStep};
@@ -23,7 +24,6 @@ use meilisearch_types::tasks::network::{ExportMode, ExportShard, NetworkTopology
 use meilisearch_types::tasks::{KindWithContent, Status, Task};
 use roaring::RoaringBitmap;
 
-use crate::index_mapper::{IndexUid as _, UserIndex};
 use crate::scheduler::create_batch::Batch;
 use crate::scheduler::process_batch::ProcessBatchInfo;
 use crate::scheduler::process_export::{ExportContext, ExportOptions, TargetInstance};

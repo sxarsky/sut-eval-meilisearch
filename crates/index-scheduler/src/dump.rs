@@ -243,6 +243,7 @@ impl<'a> Dump<'a> {
                 KindDump::NetworkTopologyChange(network_topology_change) => {
                     KindWithContent::NetworkTopologyChange(network_topology_change)
                 }
+                KindDump::DsrUpdate(update) => KindWithContent::DsrUpdate(update),
             },
         };
 

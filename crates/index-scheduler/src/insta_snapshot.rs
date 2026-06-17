@@ -9,7 +9,7 @@ use meilisearch_types::tasks::{Details, Kind, Status, Task};
 use meilisearch_types::versioning::{self, VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH};
 use roaring::RoaringBitmap;
 
-use crate::index_mapper::{IndexMapper, IndexUid as _, UserIndex};
+use crate::index_mapper::IndexMapper;
 use crate::{IndexScheduler, BEI128};
 
 pub fn snapshot_index_scheduler(scheduler: &IndexScheduler) -> String {
@@ -333,7 +333,10 @@ fn snapshot_details(d: &Details) -> String {
             format!("{{ index_uid: {index_uid:?}, pre_compaction_size: {pre_compaction_size:?}, post_compaction_size: {post_compaction_size:?} }}")
         }
         Details::NetworkTopologyChange { moved_documents, message } => {
-            format!("{{ moved_documents: {moved_documents:?}, message: {message:?}")
+            format!("{{ moved_documents: {moved_documents:?}, message: {message:?} }}")
+        }
+        Details::DsrUpdate(update) => {
+            format!("{{ update: {update:?} }}")
         }
     }
 }
@@ -439,7 +442,7 @@ pub fn snapshot_batch(batch: &Batch) -> String {
 
 pub fn snapshot_index_mapper(rtxn: &RoTxn, mapper: &IndexMapper) -> String {
     let mut s = String::new();
-    let names = mapper.index_names::<UserIndex>(rtxn).unwrap();
+    let names = mapper.index_names::<meilisearch_types::index_uid::UserIndex>(rtxn).unwrap();
 
     for name in names {
         let name = name.unwrap();

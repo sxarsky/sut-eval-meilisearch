@@ -54,7 +54,7 @@ pub use federated::{
 };
 
 mod dynamic_rules;
-pub use dynamic_rules::{collect_active_rules, resolve_pins, DynamicSearchContext};
+pub use dynamic_rules::{resolve_pins, DynamicSearchContext};
 
 mod hydration;
 mod value_paths_visitor;
