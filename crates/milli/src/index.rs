@@ -95,6 +95,7 @@ pub mod db_name {
     pub const MAIN: &str = "main";
     pub const WORD_DOCIDS: &str = "word-docids";
     pub const EXACT_WORD_DOCIDS: &str = "exact-word-docids";
+    pub const SYNONYMS: &str = "synonyms";
     pub const WORD_PREFIX_DOCIDS: &str = "word-prefix-docids";
     pub const EXACT_WORD_PREFIX_DOCIDS: &str = "exact-word-prefix-docids";
     pub const EXTERNAL_DOCUMENTS_IDS: &str = "external-documents-ids";
@@ -120,7 +121,7 @@ pub mod db_name {
     pub const CELLULITE: &str = "cellulite"; // used as a prefix, counted as `Cellulite::nb_dbs`
     pub const DOCUMENTS: &str = "documents";
 }
-const NUMBER_OF_DBS: u32 = 26 + Cellulite::nb_dbs();
+const NUMBER_OF_DBS: u32 = 27 + Cellulite::nb_dbs();
 
 #[derive(Clone)]
 pub struct Index {
@@ -138,6 +139,9 @@ pub struct Index {
 
     /// A word and all the documents ids containing the word, from attributes for which typos are not allowed.
     pub exact_word_docids: Database<Str, CboRoaringBitmapCodec>,
+
+    /// A list of words and the list of synonyms associated to it.
+    pub synonyms: heed::Database<SynonymsKeyCodec, SerdeJson<Synonyms>>,
 
     /// A prefix of word and all the documents ids containing this prefix.
     pub word_prefix_docids: Database<Str, CboRoaringBitmapCodec>,
@@ -1867,6 +1871,7 @@ impl Index {
             external_documents_ids,
             word_docids,
             exact_word_docids,
+            synonyms,
             word_prefix_docids,
             exact_word_prefix_docids,
             word_pair_proximity_docids,
@@ -1910,6 +1915,7 @@ impl Index {
             .insert("external_documents_ids", external_documents_ids.stat(rtxn).map(compute_size)?);
         sizes.insert("word_docids", word_docids.stat(rtxn).map(compute_size)?);
         sizes.insert("exact_word_docids", exact_word_docids.stat(rtxn).map(compute_size)?);
+        sizes.insert("synonyms", synonyms.stat(rtxn).map(compute_size)?);
         sizes.insert("word_prefix_docids", word_prefix_docids.stat(rtxn).map(compute_size)?);
         sizes.insert(
             "exact_word_prefix_docids",
@@ -1974,6 +1980,30 @@ impl Index {
         sizes.insert("cellulite_metadata", cellulite.metadata_db_stats(rtxn).map(compute_size)?);
 
         Ok(sizes)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Synonyms {
+    original_key: String,
+    synonyms: Vec<String>,
+}
+
+impl Synonyms {
+    /// The original words key, e.g. "smart phone".
+    pub fn original_key(&self) -> &str {
+        &self.original_key
+    }
+
+    /// The original, unnormalized, unsplit, associated synonyms, e.g. "iphone".
+    pub fn original_synonyms(&self) -> impl Iterator<Item = &str> + '_ {
+        self.synonyms.iter().map(AsRef::as_ref)
+    }
+
+    /// The normalized and split associated synonyms, e.g.
+    pub fn synonyms(&self) -> impl Iterator<Item = impl Iterator<Item = &str> + '_> + '_ {
+        // TODO we must normalize them and split whitespace and separator after
+        self.original_synonyms().map(|s| s.split_whitespace())
     }
 }
 
