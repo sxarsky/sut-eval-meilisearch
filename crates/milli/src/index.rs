@@ -6,7 +6,7 @@ use std::fs::File;
 use std::path::Path;
 
 use cellulite::Cellulite;
-use heed::types::*;
+use heed::types::{SerdeJson, *};
 use heed::{CompactionOption, Database, DatabaseStat, RoTxn, RwTxn, Unspecified, WithoutTls};
 use indexmap::IndexMap;
 use roaring::RoaringBitmap;
@@ -24,12 +24,13 @@ use crate::heed_codec::facet::{
     FieldIdCodec, OrderedF64Codec,
 };
 use crate::heed_codec::version::VersionCodec;
-use crate::heed_codec::{BEU16StrCodec, FstSetCodec, StrBEU16Codec, StrRefCodec};
+use crate::heed_codec::{BEU16StrCodec, FstSetCodec, StrBEU16Codec, StrRefCodec, SynonymsKeyCodec};
 use crate::order_by_map::OrderByMap;
 use crate::progress::Progress;
 use crate::prompt::PromptData;
 use crate::proximity::ProximityPrecision;
 use crate::sharding::{DbShardDocids, Shards};
+use crate::synonyms::Synonyms;
 use crate::update::new::StdResult;
 use crate::vector::db::IndexEmbeddingConfigs;
 use crate::vector::{Embedding, VectorStore, VectorStoreBackend, VectorStoreStats};
@@ -66,8 +67,6 @@ pub mod main_key {
     pub const NON_SEPARATOR_TOKENS_KEY: &str = "non-separator-tokens";
     pub const SEPARATOR_TOKENS_KEY: &str = "separator-tokens";
     pub const DICTIONARY_KEY: &str = "dictionary";
-    pub const SYNONYMS_KEY: &str = "synonyms";
-    pub const USER_DEFINED_SYNONYMS_KEY: &str = "user-defined-synonyms";
     pub const WORDS_FST_KEY: &str = "words-fst";
     pub const WORDS_PREFIXES_FST_KEY: &str = "words-prefixes-fst";
     pub const CREATED_AT_KEY: &str = "created-at";
@@ -228,6 +227,7 @@ impl Index {
             env.create_database(&mut wtxn, Some(EXTERNAL_DOCUMENTS_IDS))?;
         let exact_word_docids = env.create_database(&mut wtxn, Some(EXACT_WORD_DOCIDS))?;
         let word_prefix_docids = env.create_database(&mut wtxn, Some(WORD_PREFIX_DOCIDS))?;
+        let synonyms = env.create_database(&mut wtxn, Some(SYNONYMS))?;
         let exact_word_prefix_docids =
             env.create_database(&mut wtxn, Some(EXACT_WORD_PREFIX_DOCIDS))?;
         let word_pair_proximity_docids =
@@ -275,6 +275,7 @@ impl Index {
             external_documents_ids,
             word_docids,
             exact_word_docids,
+            synonyms,
             word_prefix_docids,
             exact_word_prefix_docids,
             word_pair_proximity_docids,
@@ -1334,62 +1335,6 @@ impl Index {
             .main
             .remap_types::<Str, SerdeBincode<BTreeSet<String>>>()
             .get(rtxn, main_key::DICTIONARY_KEY)?)
-    }
-
-    /* synonyms */
-
-    pub(crate) fn put_synonyms(
-        &self,
-        wtxn: &mut RwTxn<'_>,
-        synonyms: &HashMap<Vec<String>, Vec<Vec<String>>>,
-        user_defined_synonyms: &BTreeMap<String, Vec<String>>,
-    ) -> heed::Result<()> {
-        self.main.remap_types::<Str, SerdeBincode<_>>().put(
-            wtxn,
-            main_key::SYNONYMS_KEY,
-            synonyms,
-        )?;
-        self.main.remap_types::<Str, SerdeBincode<_>>().put(
-            wtxn,
-            main_key::USER_DEFINED_SYNONYMS_KEY,
-            user_defined_synonyms,
-        )
-    }
-
-    pub(crate) fn delete_synonyms(&self, wtxn: &mut RwTxn<'_>) -> heed::Result<bool> {
-        self.main.remap_key_type::<Str>().delete(wtxn, main_key::SYNONYMS_KEY)?;
-        self.main.remap_key_type::<Str>().delete(wtxn, main_key::USER_DEFINED_SYNONYMS_KEY)
-    }
-
-    pub fn user_defined_synonyms(
-        &self,
-        rtxn: &RoTxn<'_>,
-    ) -> heed::Result<BTreeMap<String, Vec<String>>> {
-        Ok(self
-            .main
-            .remap_types::<Str, SerdeBincode<_>>()
-            .get(rtxn, main_key::USER_DEFINED_SYNONYMS_KEY)?
-            .unwrap_or_default())
-    }
-
-    pub fn synonyms(
-        &self,
-        rtxn: &RoTxn<'_>,
-    ) -> heed::Result<HashMap<Vec<String>, Vec<Vec<String>>>> {
-        Ok(self
-            .main
-            .remap_types::<Str, SerdeBincode<_>>()
-            .get(rtxn, main_key::SYNONYMS_KEY)?
-            .unwrap_or_default())
-    }
-
-    pub fn words_synonyms<S: AsRef<str>>(
-        &self,
-        rtxn: &RoTxn<'_>,
-        words: &[S],
-    ) -> heed::Result<Option<Vec<Vec<String>>>> {
-        let words: Vec<_> = words.iter().map(|s| s.as_ref().to_owned()).collect();
-        Ok(self.synonyms(rtxn)?.remove(&words))
     }
 
     /* words prefixes fst */
