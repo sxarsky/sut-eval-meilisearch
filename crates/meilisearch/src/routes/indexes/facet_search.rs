@@ -298,6 +298,8 @@ pub async fn search(
     let progress = Progress::default();
     let index_uid = IndexUid::try_from(index_uid.into_inner())?;
 
+    let before_search = time::OffsetDateTime::now_utc();
+
     let permit = search_queue.try_get_search_permit().await?;
 
     let mut query = params.into_inner();
@@ -314,10 +316,19 @@ pub async fn search(
     let network = index_scheduler.network();
 
     let search_result = if query.must_use_network(&network, &features)? {
-        search_federated(index_scheduler.clone(), query, index_uid, progress, features, network)
-            .await
+        search_federated(
+            index_scheduler.clone(),
+            query,
+            index_uid,
+            before_search,
+            progress,
+            features,
+            network,
+        )
+        .await
     } else {
-        search_local(index_scheduler.clone(), query, index_uid, progress, features).await
+        search_local(index_scheduler.clone(), query, index_uid, before_search, progress, features)
+            .await
     };
 
     permit.drop().await;
@@ -337,6 +348,7 @@ async fn search_federated(
     index_scheduler: Data<IndexScheduler>,
     mut query: FacetSearchQuery,
     index_uid: IndexUid,
+    before_search: time::OffsetDateTime,
     progress: Progress,
     features: RoFeatures,
     network: Network,
@@ -417,9 +429,16 @@ async fn search_federated(
 
     query.filter = original_filter;
 
-    let (mut local_results, order) =
-        search_multi_local(local_queries, index_scheduler, query, index_uid, progress, features)
-            .await?;
+    let (mut local_results, order) = search_multi_local(
+        local_queries,
+        index_scheduler,
+        query,
+        index_uid,
+        before_search,
+        progress,
+        features,
+    )
+    .await?;
 
     for task in in_flight_requests {
         match task.await.unwrap() {
@@ -478,6 +497,7 @@ async fn search_multi_local(
     index_scheduler: Data<IndexScheduler>,
     query: FacetSearchQuery,
     index_uid: IndexUid,
+    before_search: time::OffsetDateTime,
     progress: Progress,
     features: RoFeatures,
 ) -> Result<(FacetSearchResult, OrderBy), ResponseError> {
@@ -522,6 +542,8 @@ async fn search_multi_local(
         let (search, _, _, _) = prepare_search(
             &index,
             &rtxn,
+            index_uid.as_str(),
+            before_search,
             &search_query,
             filter,
             &search_kind,
@@ -540,6 +562,7 @@ async fn search_local(
     index_scheduler: Data<IndexScheduler>,
     query: FacetSearchQuery,
     index_uid: IndexUid,
+    before_search: time::OffsetDateTime,
     progress: Progress,
     features: RoFeatures,
 ) -> Result<FacetSearchResult, ResponseError> {
@@ -577,6 +600,8 @@ async fn search_local(
         let (search, _, _, _) = prepare_search(
             &index,
             &rtxn,
+            index_uid.as_str(),
+            before_search,
             &search_query,
             filter,
             &search_kind,

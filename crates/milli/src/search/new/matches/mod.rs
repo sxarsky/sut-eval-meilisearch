@@ -511,16 +511,26 @@ mod tests {
     use super::*;
     use crate::index::tests::TempIndex;
     use crate::progress::Progress;
-    use crate::{execute_search, filtered_universe, Deadline, SearchContext};
+    use crate::{execute_search, filtered_universe, Deadline, Search, SearchContext};
 
     impl<'a> MatcherBuilder<'a> {
         fn new_test(rtxn: &'a heed::RoTxn<'a>, index: &'a TempIndex, query: &str) -> Self {
             let progress = Progress::default();
-            let mut ctx = SearchContext::new(index, rtxn).unwrap();
-            let universe = filtered_universe(ctx.index, ctx.txn, &None, &progress).unwrap();
+
+            let mut search =
+                Search::new(rtxn, index, "test", time::OffsetDateTime::now_utc(), &progress);
+            let mut ctx =
+                SearchContext::new(index, rtxn, "test", time::OffsetDateTime::now_utc()).unwrap();
+            let mut universe = filtered_universe(ctx.index, ctx.txn, &None, &progress).unwrap();
+
+            search.query(query);
+
+            let (query_terms, _, _) =
+                search.build_located_query_terms(&mut ctx, &mut universe).unwrap();
+
             let crate::search::PartialSearchResult { located_query_terms, .. } = execute_search(
                 &mut ctx,
-                Some(query),
+                query_terms,
                 crate::TermsMatchingStrategy::default(),
                 crate::score_details::ScoringStrategy::Skip,
                 false,
@@ -531,11 +541,9 @@ mod tests {
                 crate::search::new::GeoSortParameter::default(),
                 0,
                 100,
-                Some(10),
                 &mut crate::DefaultSearchLogger,
                 &mut crate::DefaultSearchLogger,
                 Deadline::never(),
-                None,
                 None,
                 &progress,
                 vec![],

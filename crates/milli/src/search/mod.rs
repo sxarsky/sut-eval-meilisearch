@@ -5,6 +5,7 @@ use charabia::Language;
 use levenshtein_automata::{LevenshteinAutomatonBuilder as LevBuilder, DFA};
 use once_cell::sync::Lazy;
 use roaring::bitmap::RoaringBitmap;
+use time::OffsetDateTime;
 
 pub use self::facet::{
     serialize_index_filter_to_filter_string, FacetDistribution, Filter, IndexFilter, OrderBy,
@@ -13,14 +14,18 @@ pub use self::facet::{
 pub use self::new::matches::{FormatOptions, MatchBounds, MatcherBuilder, MatchingWords};
 use self::new::{execute_vector_search, PartialSearchResult, VectorStoreStats};
 use crate::documents::GeoSortParameter;
+use crate::dynamic_search_rules::DynamicSearchRules;
 use crate::filterable_attributes_rules::{filtered_matching_patterns, matching_features};
 use crate::index::MatchingStrategy;
 use crate::progress::Progress;
 use crate::score_details::{ScoreDetails, ScoringStrategy};
+use crate::search::new::{
+    extract_tokens, resolve_negative_phrases, resolve_negative_words, ExtractedTokens,
+};
 use crate::vector::{Embedder, Embedding};
 use crate::{
     execute_search, filtered_universe, AscDesc, Deadline, DefaultSearchLogger, DocumentId, Error,
-    Index, Position, Result, SearchContext, UserError,
+    Index, Position, Result, SearchContext, SearchStep, UserError,
 };
 
 // Building these factories is not free.
@@ -68,16 +73,24 @@ pub struct Search<'a> {
     max_total_hits: Option<usize>,
     rtxn: &'a heed::RoTxn<'a>,
     index: &'a Index,
+    index_uid: &'a str,
+    before_search: OffsetDateTime,
     semantic: Option<SemanticSearch>,
     deadline: Deadline,
     ranking_score_threshold: Option<f64>,
     locales: Option<Vec<Language>>,
     progress: &'a Progress,
-    pins: Vec<PinDoc>,
+    dynamic_search_rules: Option<&'a DynamicSearchRules>,
 }
 
 impl<'a> Search<'a> {
-    pub fn new(rtxn: &'a heed::RoTxn<'a>, index: &'a Index, progress: &'a Progress) -> Search<'a> {
+    pub fn new(
+        rtxn: &'a heed::RoTxn<'a>,
+        index: &'a Index,
+        index_uid: &'a str,
+        before_search: OffsetDateTime,
+        progress: &'a Progress,
+    ) -> Search<'a> {
         Search {
             query: None,
             filter: None,
@@ -95,12 +108,14 @@ impl<'a> Search<'a> {
             words_limit: 10,
             rtxn,
             index,
+            index_uid,
+            before_search,
             semantic: None,
             locales: None,
             deadline: Deadline::never(),
             ranking_score_threshold: None,
             progress,
-            pins: vec![],
+            dynamic_search_rules: None,
         }
     }
 
@@ -210,9 +225,16 @@ impl<'a> Search<'a> {
         self
     }
 
-    pub fn pins(&mut self, pins: Vec<PinDoc>) -> &mut Search<'a> {
-        self.pins = pins;
+    pub fn dynamic_search_rules(
+        &mut self,
+        dynamic_search_rules: &'a DynamicSearchRules,
+    ) -> &mut Search<'a> {
+        self.dynamic_search_rules = Some(dynamic_search_rules);
         self
+    }
+
+    pub fn index_uid(&self) -> &'a str {
+        self.index_uid
     }
 
     pub fn execute_for_candidates(&self, is_hybrid_kind: bool) -> Result<RoaringBitmap> {
@@ -221,7 +243,8 @@ impl<'a> Search<'a> {
         };
 
         if has_vector {
-            let ctx = SearchContext::new(self.index, self.rtxn)?;
+            let ctx =
+                SearchContext::new(self.index, self.rtxn, self.index_uid, self.before_search)?;
             filtered_universe(ctx.index, ctx.txn, &self.filter, self.progress)
         } else {
             Ok(self.execute()?.candidates)
@@ -229,7 +252,8 @@ impl<'a> Search<'a> {
     }
 
     pub fn execute(&self) -> Result<SearchResult> {
-        let mut ctx = SearchContext::new(self.index, self.rtxn)?;
+        let mut ctx =
+            SearchContext::new(self.index, self.rtxn, self.index_uid, self.before_search)?;
 
         if let Some(searchable_attributes) = self.searchable_attributes {
             ctx.attributes_to_search_on(searchable_attributes)?;
@@ -264,16 +288,9 @@ impl<'a> Search<'a> {
         }
 
         let mut universe = filtered_universe(ctx.index, ctx.txn, &self.filter, self.progress)?;
-        let pins = self
-            .pins
-            .iter()
-            .filter(|pin| universe.contains(pin.doc_id))
-            .copied()
-            .collect::<Vec<_>>();
 
-        for pin in &pins {
-            universe.remove(pin.doc_id);
-        }
+        let (query_terms, pins, used_negative_operator) =
+            self.build_located_query_terms(&mut ctx, &mut universe)?;
 
         let mut query_vector = None;
         let PartialSearchResult {
@@ -282,7 +299,6 @@ impl<'a> Search<'a> {
             documents_ids,
             document_scores,
             degraded,
-            used_negative_operator,
         } = match self.semantic.as_ref() {
             Some(SemanticSearch {
                 vector: Some(vector),
@@ -317,7 +333,7 @@ impl<'a> Search<'a> {
             }
             _ => execute_search(
                 &mut ctx,
-                self.query.as_deref(),
+                query_terms,
                 self.terms_matching_strategy,
                 self.scoring_strategy,
                 self.exhaustive_number_hits,
@@ -328,12 +344,10 @@ impl<'a> Search<'a> {
                 self.geo_param,
                 self.offset,
                 self.limit,
-                Some(self.words_limit),
                 &mut DefaultSearchLogger,
                 &mut DefaultSearchLogger,
                 self.deadline.clone(),
                 self.ranking_score_threshold,
-                self.locales.as_ref(),
                 self.progress,
                 pins,
             )?,
@@ -361,6 +375,47 @@ impl<'a> Search<'a> {
             query_vector,
         })
     }
+
+    pub fn build_located_query_terms(
+        &self,
+        ctx: &mut SearchContext<'_>,
+        universe: &mut RoaringBitmap,
+    ) -> Result<(Option<Vec<new::LocatedQueryTerm>>, Vec<PinDoc>, bool), Error> {
+        let mut used_negative_operator = false;
+
+        let mut ignored = RoaringBitmap::new();
+
+        let query_terms = if let Some(query) = self.query.as_deref() {
+            let _step = self.progress.update_progress_scoped(SearchStep::TokenizeQuery);
+
+            let ExtractedTokens { query_terms, negative_words, negative_phrases } =
+                extract_tokens(ctx, query, Some(self.words_limit), self.locales.as_ref())?;
+
+            used_negative_operator = !negative_words.is_empty() || !negative_phrases.is_empty();
+
+            ignored |= resolve_negative_words(ctx, Some(&*universe), &negative_words)?;
+            ignored |= resolve_negative_phrases(ctx, &negative_phrases)?;
+
+            if query_terms.is_empty() {
+                // Do a placeholder search instead
+                None
+            } else {
+                Some(query_terms)
+            }
+        } else {
+            None
+        };
+
+        let pins = self
+            .dynamic_search_rules
+            .map(|dsrs| dsrs.resolve_pins(query_terms.as_deref().unwrap_or(&[]), universe, ctx))
+            .transpose()?
+            .unwrap_or_default();
+
+        *universe -= ignored;
+
+        Ok((query_terms, pins, used_negative_operator))
+    }
 }
 
 impl fmt::Debug for Search<'_> {
@@ -382,12 +437,14 @@ impl fmt::Debug for Search<'_> {
             max_total_hits,
             rtxn: _,
             index: _,
+            index_uid: _,
+            before_search: _,
             semantic,
             deadline,
             ranking_score_threshold,
             locales,
             progress: _,
-            pins,
+            dynamic_search_rules: _,
         } = self;
         f.debug_struct("Search")
             .field("query", query)
@@ -411,7 +468,6 @@ impl fmt::Debug for Search<'_> {
             .field("deadline", deadline)
             .field("ranking_score_threshold", ranking_score_threshold)
             .field("locales", locales)
-            .field("pins", pins)
             .finish()
     }
 }

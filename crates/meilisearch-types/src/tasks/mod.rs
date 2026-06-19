@@ -15,7 +15,7 @@ use utoipa::{schema, ToSchema};
 use uuid::Uuid;
 
 use crate::batches::BatchId;
-use crate::dynamic_search_rules::{DynamicSearchRule, RuleUid};
+use crate::dynamic_search_rules::{DynamicSearchRuleUpdateRequest, RuleUid};
 use crate::error::ResponseError;
 use crate::index_uid::DsrIndex;
 use crate::index_uid_pattern::IndexUidPattern;
@@ -195,7 +195,7 @@ pub enum KindWithContent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DsrUpdate {
-    CreateOrUpdate(DynamicSearchRule),
+    CreateOrUpdate { rule_id: RuleUid, update: DynamicSearchRuleUpdateRequest },
     Deletion(RuleUid),
 }
 

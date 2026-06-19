@@ -57,7 +57,6 @@ pub use features::RoFeatures;
 use flate2::bufread::GzEncoder;
 use flate2::Compression;
 use meilisearch_types::batches::Batch;
-use meilisearch_types::dynamic_search_rules::{DynamicSearchRule, DynamicSearchRules, RuleUid};
 use meilisearch_types::features::{
     ChatCompletionSettings, InstanceTogglableFeatures, RuntimeTogglableFeatures,
 };
@@ -91,6 +90,7 @@ pub use utils::{ReqwestRequestWrapper, UreqRequestWrapper};
 use uuid::Uuid;
 use versioning::Versioning;
 
+use crate::dynamic_search_rules::DynamicSearchRules;
 use crate::index_mapper::IndexMapper;
 use crate::processing::ProcessingTasks;
 use crate::utils::clamp_to_page_size;
@@ -189,7 +189,7 @@ pub struct IndexScheduler {
     /// In charge of fetching and setting the status of experimental features.
     features: features::FeatureData,
     /// In charge of storing and retrieving search dynamic rules.
-    dynamic_search_rules: dynamic_search_rules::DynamicSearchRulesStore,
+    legacy_dynamic_search_rules: dynamic_search_rules::DynamicSearchRulesStore,
 
     /// Stores the custom chat prompts and other settings of the indexes.
     pub(crate) chat_settings: Database<Str, SerdeJson<ChatCompletionSettings>>,
@@ -267,7 +267,7 @@ impl IndexScheduler {
             #[cfg(test)]
             run_loop_iteration: self.run_loop_iteration.clone(),
             features: self.features.clone(),
-            dynamic_search_rules: self.dynamic_search_rules.clone(),
+            legacy_dynamic_search_rules: self.legacy_dynamic_search_rules.clone(),
             chat_settings: self.chat_settings,
             runtime: self.runtime.clone(),
             web_client: self.web_client.clone(),
@@ -387,7 +387,7 @@ impl IndexScheduler {
             #[cfg(test)]
             run_loop_iteration: Arc::new(RwLock::new(0)),
             features,
-            dynamic_search_rules,
+            legacy_dynamic_search_rules: dynamic_search_rules,
             chat_settings,
             runtime,
             web_client
@@ -1171,28 +1171,8 @@ impl IndexScheduler {
         self.features.network()
     }
 
-    pub fn put_dynamic_search_rules(&self, rules: DynamicSearchRules) -> Result<()> {
-        let wtxn = self.env.write_txn().map_err(Error::HeedTransaction)?;
-        self.dynamic_search_rules.put(wtxn, rules)?;
-        Ok(())
-    }
-
-    pub fn dynamic_search_rules(&self) -> Arc<DynamicSearchRules> {
-        self.dynamic_search_rules.get()
-    }
-
-    pub fn put_dynamic_search_rule(&self, rule: &DynamicSearchRule) -> Result<()> {
-        let mut wtxn = self.env.write_txn()?;
-        self.dynamic_search_rules.put_one(&mut wtxn, rule)?;
-        wtxn.commit()?;
-        Ok(())
-    }
-
-    pub fn delete_dynamic_search_rule(&self, uid: &RuleUid) -> Result<bool> {
-        let mut wtxn = self.env.write_txn()?;
-        let deleted = self.dynamic_search_rules.delete_one(&mut wtxn, uid)?;
-        wtxn.commit()?;
-        Ok(deleted)
+    pub fn dynamic_search_rules(&self, features: RoFeatures) -> Option<DynamicSearchRules<'_>> {
+        DynamicSearchRules::new(self, features)
     }
 
     pub fn update_runtime_webhooks(&self, runtime: RuntimeWebhooks) -> Result<()> {

@@ -1400,7 +1400,8 @@ mod tests {
         let rtxn = index.read_txn().unwrap();
 
         // testing the simple query search
-        let mut search = crate::Search::new(&rtxn, &index, &progress);
+        let mut search =
+            crate::Search::new(&rtxn, &index, "test", time::OffsetDateTime::now_utc(), &progress);
         search.query("document");
         search.terms_matching_strategy(TermsMatchingStrategy::default());
         // all documents should be returned
@@ -1511,7 +1512,13 @@ mod tests {
         let rtxn = index.read_txn().unwrap();
 
         for (s, i) in [("zeroth", 0), ("first", 1), ("second", 2), ("third", 3)] {
-            let mut search = crate::Search::new(&rtxn, &index, &progress);
+            let mut search = crate::Search::new(
+                &rtxn,
+                &index,
+                "test",
+                time::OffsetDateTime::now_utc(),
+                &progress,
+            );
             let filter = format!(r#""dog.race.bernese mountain" = {s}"#);
             let filter = crate::Filter::from_str(&filter).unwrap().unwrap();
             search.filter(Some(IndexFilter::from(filter)));
@@ -1550,7 +1557,8 @@ mod tests {
 
         let rtxn = index.read_txn().unwrap();
 
-        let mut search = crate::Search::new(&rtxn, &index, &progress);
+        let mut search =
+            crate::Search::new(&rtxn, &index, "test", time::OffsetDateTime::now_utc(), &progress);
         search.sort_criteria(vec![crate::AscDesc::Asc(crate::Member::Field(S(
             "dog.race.bernese mountain",
         )))]);
@@ -1621,7 +1629,8 @@ mod tests {
         let count = index.word_docids.get(&rtxn, "bāo").unwrap().unwrap().len();
         assert_eq!(count, 2);
 
-        let mut search = crate::Search::new(&rtxn, &index, &progress);
+        let mut search =
+            crate::Search::new(&rtxn, &index, "test", time::OffsetDateTime::now_utc(), &progress);
         search.query("化妆包");
         search.terms_matching_strategy(TermsMatchingStrategy::default());
 
@@ -3680,7 +3689,7 @@ mod tests {
         let words = index.words_fst(&txn).unwrap().into_stream().into_strs().unwrap();
         insta::assert_snapshot!(format!("{words:?}"), @r###"["hello"]"###);
 
-        let mut s = Search::new(&txn, &index, &progress);
+        let mut s = Search::new(&txn, &index, "test", time::OffsetDateTime::now_utc(), &progress);
         s.query("hello");
         let crate::SearchResult { documents_ids, .. } = s.execute().unwrap();
         insta::assert_snapshot!(format!("{documents_ids:?}"), @"[0]");

@@ -31,7 +31,7 @@ pub fn snapshot_index_scheduler(scheduler: &IndexScheduler) -> String {
 
         index_mapper,
         features: _,
-        dynamic_search_rules: _,
+        legacy_dynamic_search_rules: _,
         webhooks: _,
         test_breakpoint_sdr: _,
         planned_failures: _,

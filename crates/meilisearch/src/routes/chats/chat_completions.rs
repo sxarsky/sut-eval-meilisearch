@@ -23,7 +23,7 @@ use futures::StreamExt;
 use index_scheduler::filter::{
     filter_into_index_filter, filters_into_index_filters_unchecked, parse_filter,
 };
-use index_scheduler::{IndexScheduler, IndexUid};
+use index_scheduler::IndexScheduler;
 use meilisearch_auth::AuthController;
 use meilisearch_types::error::{Code, ResponseError};
 use meilisearch_types::features::{
@@ -62,7 +62,7 @@ use crate::metrics::{
 };
 use crate::routes::chats::utils::SseEventSender;
 use crate::routes::indexes::search::search_kind;
-use crate::search::{add_search_rules, prepare_search, search_from_kind, SearchQuery};
+use crate::search::{add_search_rules, elapsed, prepare_search, search_from_kind, SearchQuery};
 use crate::search_queue::SearchQueue;
 
 /// Request a chat completion
@@ -334,6 +334,7 @@ async fn process_search_request(
     search_queue: &web::Data<SearchQueue>,
     auth_token: &str,
     index_uid: String,
+    start_time: time::OffsetDateTime,
     q: Option<String>,
     filter: Option<String>,
 ) -> Result<(Index, Vec<Document>, String), ResponseError> {
@@ -410,6 +411,8 @@ async fn process_search_request(
         let (search, _is_finite_pagination, _max_total_hits, _offset) = prepare_search(
             &index_cloned,
             &rtxn,
+            &index_uid,
+            start_time,
             &query,
             filter,
             &search_kind,
@@ -418,7 +421,7 @@ async fn process_search_request(
             &progress,
         )?;
 
-        match search_from_kind(index_uid, search_kind, search) {
+        match search_from_kind(search_kind, search) {
             Ok((search_results, _)) => Ok((rtxn, Ok(search_results))),
             Err(MeilisearchHttpError::Milli {
                 error: meilisearch_types::milli::Error::UserError(user_error),
@@ -481,7 +484,7 @@ async fn non_streamed_chat(
         chat_completion.messages.len(),
         false, // non_streamed_chat is not streaming
     );
-    let start_time = std::time::Instant::now();
+    let start_time = time::OffsetDateTime::now_utc();
 
     if let Some(n) = chat_completion.n.filter(|&n| n != 1) {
         return Err(ResponseError::from_msg(
@@ -549,6 +552,7 @@ async fn non_streamed_chat(
                                 &search_queue,
                                 auth_token,
                                 index_uid,
+                                start_time,
                                 q,
                                 filter,
                             )
@@ -584,7 +588,8 @@ async fn non_streamed_chat(
 
     // Record success in analytics
     let mut aggregate = aggregate;
-    aggregate.succeed(start_time.elapsed());
+
+    aggregate.succeed(elapsed(start_time));
     analytics.publish(aggregate, &req);
 
     Ok(HttpResponse::Ok().json(response))
@@ -632,7 +637,7 @@ async fn streamed_chat(
         chat_completion.messages.len(),
         true, // streamed_chat is always streaming
     );
-    let start_time = std::time::Instant::now();
+    let start_time = time::OffsetDateTime::now_utc();
 
     let config = Config::new(&chat_settings);
     let auth_token = extract_token_from_request(&req)?.unwrap().to_string();
@@ -668,6 +673,7 @@ async fn streamed_chat(
                 &tx,
                 &mut global_tool_calls,
                 function_support,
+                start_time,
             );
 
             match output.await {
@@ -682,7 +688,7 @@ async fn streamed_chat(
     });
 
     // Record success in analytics after the stream is set up
-    aggregate.succeed(start_time.elapsed());
+    aggregate.succeed(elapsed(start_time));
     analytics.publish(aggregate, &req);
 
     Ok(sse_chat_response(rx))
@@ -706,6 +712,7 @@ async fn run_conversation<C: async_openai::config::Config>(
     tx: &SseEventSender,
     global_tool_calls: &mut HashMap<u32, Call>,
     function_support: FunctionSupport,
+    start_time: time::OffsetDateTime,
 ) -> Result<ControlFlow<Option<FinishReason>, ()>, SendError<Event>> {
     use DbChatCompletionSource::*;
 
@@ -808,6 +815,7 @@ async fn run_conversation<C: async_openai::config::Config>(
                                 chat_completion,
                                 &resp,
                                 function_support,
+                                start_time,
                             )
                             .await?;
                         } else {
@@ -851,6 +859,7 @@ async fn handle_meili_tools(
     chat_completion: &mut CreateChatCompletionRequest,
     resp: &CreateChatCompletionStreamResponse,
     FunctionSupport { report_progress, report_sources, append_to_conversation, .. }: FunctionSupport,
+    start_time: time::OffsetDateTime,
 ) -> Result<(), SendError<Event>> {
     for call in meili_calls {
         if report_progress {
@@ -882,6 +891,7 @@ async fn handle_meili_tools(
                 search_queue,
                 auth_token,
                 index_uid,
+                start_time,
                 q,
                 filter,
             )

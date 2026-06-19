@@ -150,8 +150,7 @@ impl IndexScheduler {
                 .map(|tasks| (tasks, ProcessBatchInfo::default())),
             Batch::IndexOperation { op, must_create_index } => {
                 let index_name = op.index_uid().to_string();
-                wip::fixme!("perhaps revisit??");
-                let index_uid = AnyIndex::new(&index_name);
+                let index_uid = UserIndex::try_from_uid(&index_name)?;
 
                 let index = if must_create_index {
                     // create the index if it doesn't already exist

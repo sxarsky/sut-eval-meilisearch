@@ -343,8 +343,8 @@ fn create_or_open_index(
 mod tests {
 
     use meilisearch_types::heed::{Env, WithoutTls};
-    use meilisearch_types::Index;
     use meilisearch_types::index_uid::UserIndex;
+    use meilisearch_types::Index;
     use uuid::Uuid;
 
     use super::super::IndexMapper;
@@ -392,20 +392,23 @@ mod tests {
     #[test]
     fn resize_index() {
         let (mapper, env, _handle) = IndexMapper::test();
-        let index =
-            mapper.create_index(env.write_txn().unwrap(), UserIndex::new("index").unwrap(), None, None).unwrap();
+        let index = mapper
+            .create_index(env.write_txn().unwrap(), UserIndex::new("index").unwrap(), None, None)
+            .unwrap();
         assert_index_size(index, mapper.index_base_map_size);
 
         mapper.resize_index(&env.read_txn().unwrap(), UserIndex::new("index").unwrap()).unwrap();
 
-        let index =
-            mapper.create_index(env.write_txn().unwrap(), UserIndex::new("index").unwrap(), None, None).unwrap();
+        let index = mapper
+            .create_index(env.write_txn().unwrap(), UserIndex::new("index").unwrap(), None, None)
+            .unwrap();
         assert_index_size(index, mapper.index_base_map_size + mapper.index_growth_amount);
 
         mapper.resize_index(&env.read_txn().unwrap(), UserIndex::new("index").unwrap()).unwrap();
 
-        let index =
-            mapper.create_index(env.write_txn().unwrap(), UserIndex::new("index").unwrap(), None, None).unwrap();
+        let index = mapper
+            .create_index(env.write_txn().unwrap(), UserIndex::new("index").unwrap(), None, None)
+            .unwrap();
         assert_index_size(index, mapper.index_base_map_size + mapper.index_growth_amount * 2);
     }
 

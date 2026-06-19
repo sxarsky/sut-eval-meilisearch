@@ -272,7 +272,7 @@ pub struct DetailsView {
 
     /// The updated dynamic search rule.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rule: Option<crate::dynamic_search_rules::DynamicSearchRule>,
+    pub rule: Option<crate::dynamic_search_rules::DynamicSearchRuleUpdateRequest>,
 
     /// Number of dynamic search rules that were created, modified or deleted.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -617,7 +617,7 @@ impl From<Details> for DetailsView {
                 ..Default::default()
             },
             Details::DsrUpdate(update) => match update {
-                crate::tasks::DsrUpdate::CreateOrUpdate(rule) => {
+                crate::tasks::DsrUpdate::CreateOrUpdate { rule_id: _, update: rule } => {
                     DetailsView { rule: Some(rule), updated_rules: Some(1), ..Default::default() }
                 }
                 crate::tasks::DsrUpdate::Deletion(_) => {

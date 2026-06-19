@@ -263,6 +263,7 @@ impl From<KindWithContent> for KindDump {
 
 #[cfg(test)]
 pub(crate) mod test {
+    use std::collections::BTreeMap;
     use std::fs::File;
     use std::io::Seek;
     use std::str::FromStr;
@@ -271,8 +272,8 @@ pub(crate) mod test {
     use maplit::{btreemap, btreeset};
     use meilisearch_types::batches::{Batch, BatchEnqueuedAt, BatchStats};
     use meilisearch_types::dynamic_search_rules::{
-        Condition, DynamicSearchRule, DynamicSearchRuleAction as RuleActionKind,
-        DynamicSearchRules, RuleAction, Selector,
+        Conditions, DynamicSearchRule, DynamicSearchRuleAction as RuleActionKind, QueryCondition,
+        RuleAction, RuleUid, Selector, TimeCondition,
     };
     use meilisearch_types::facet_values_sort::FacetValuesSort;
     use meilisearch_types::features::RuntimeTogglableFeatures;
@@ -581,6 +582,8 @@ pub(crate) mod test {
         RuntimeTogglableFeatures::default()
     }
 
+    type DynamicSearchRules = BTreeMap<RuleUid, DynamicSearchRule>;
+
     fn create_test_dynamic_search_rules() -> DynamicSearchRules {
         let mut rules = DynamicSearchRules::new();
         rules.insert(
@@ -588,15 +591,19 @@ pub(crate) mod test {
             DynamicSearchRule {
                 uid: "black-friday".parse().unwrap(),
                 description: Some("Black Friday promo".to_string()),
-                priority: Some(1),
+                precedence: Some(1),
                 active: true,
-                conditions: vec![
-                    Condition::Query { is_empty: Some(false), contains: None },
-                    Condition::Time {
+                conditions: Conditions {
+                    query: Some(QueryCondition {
+                        is_empty: Some(false),
+                        words: None,
+                        locale: None,
+                    }),
+                    time: Some(TimeCondition {
                         start: Some(datetime!(2025-11-28 00:00:00 UTC)),
                         end: Some(datetime!(2025-11-28 23:59:59 UTC)),
-                    },
-                ],
+                    }),
+                },
                 actions: vec![
                     RuleAction {
                         selector: Selector {

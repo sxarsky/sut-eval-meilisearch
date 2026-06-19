@@ -578,7 +578,6 @@ impl IndexScheduler {
         mut tasks: Vec<Task>,
         progress: &Progress,
     ) -> Result<(Vec<Task>, Option<ChannelCongestion>)> {
-        wip::fixme!("allow for rule deletion");
         let indexer_alloc = Bump::new();
         let from_milli = |err| Error::from_milli(err, Some(DsrIndex::dsr_uid().to_owned()));
         let started_processing_at = std::time::Instant::now();
@@ -594,12 +593,12 @@ impl IndexScheduler {
 
         for update in updates {
             match update {
-                DsrUpdate::CreateOrUpdate(dynamic_search_rule) => {
+                DsrUpdate::CreateOrUpdate { rule_id, update: dynamic_search_rule } => {
                     let mut vec = bumpalo::collections::Vec::new_in(&indexer_alloc);
                     // unwrap: vec writing cannot fail + dynamic search rule always serializable
                     serde_json::to_writer(&mut vec, dynamic_search_rule).unwrap();
                     let vec = vec.into_bump_slice();
-                    indexer.push_raw_operation(Payload::Replace {
+                    indexer.push_raw_operation(Payload::Update {
                         payload: vec,
                         on_missing_document: milli::update::MissingDocumentPolicy::Create,
                     });
