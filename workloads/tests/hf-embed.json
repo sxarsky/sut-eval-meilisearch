@@ -461,7 +461,48 @@
       "binary": {
         "description": "last version without ranking score breakings, no update task",
         "source": "release",
-        "version": "1.47.0",
+        "version": "1.48.0",
+        "edition": "community",
+        "extraCliArgs": [
+          "--experimental-dumpless-upgrade",
+          "--experimental-max-number-of-batched-tasks=0"
+        ]
+      }
+    },
+    {
+      "description": "register results for the index using hannoy",
+      "route": "indexes/movies-hannoy/search",
+      "method": "POST",
+      "body": {
+        "inline": {
+          "attributesToRetrieve": ["id"],
+          "hybrid": {
+            "embedder": "default",
+            "semanticRatio": 1.0
+          },
+          "limit": 5,
+          "q": "Police",
+          "showRankingScore": true
+        }
+      },
+      "register": {
+        "hitHannoy0": "/hits/0/id",
+        "hitHannoy1": "/hits/1/id",
+        "hitHannoy2": "/hits/2/id",
+        "hitHannoy3": "/hits/3/id",
+        "hitHannoy4": "/hits/4/id",
+        "hitHannoy0score": "/hits/0/_rankingScore",
+        "hitHannoy1score": "/hits/1/_rankingScore",
+        "hitHannoy2score": "/hits/2/_rankingScore",
+        "hitHannoy3score": "/hits/3/_rankingScore",
+        "hitHannoy4score": "/hits/4/_rankingScore"
+      },
+      "synchronous": "WaitForResponse"
+    },
+    {
+      "binary": {
+        "description": "current binary migrates arroy indexes to hannoy indexes, no upgrade task",
+        "source": "build",
         "edition": "community",
         "extraCliArgs": [
           "--experimental-dumpless-upgrade",
@@ -523,9 +564,8 @@
     },
     {
       "binary": {
-        "description": "last version without ranking score breakings",
-        "source": "release",
-        "version": "1.47.0",
+        "description": "apply upgrade task",
+        "source": "build",
         "edition": "community",
         "extraCliArgs": ["--experimental-dumpless-upgrade"]
       }
