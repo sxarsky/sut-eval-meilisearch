@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
@@ -30,7 +30,6 @@ use crate::progress::Progress;
 use crate::prompt::PromptData;
 use crate::proximity::ProximityPrecision;
 use crate::sharding::{DbShardDocids, Shards};
-use crate::synonyms::Synonyms;
 use crate::update::new::StdResult;
 use crate::vector::db::IndexEmbeddingConfigs;
 use crate::vector::{Embedding, VectorStore, VectorStoreBackend, VectorStoreStats};
@@ -1341,6 +1340,25 @@ impl Index {
             .get(rtxn, main_key::DICTIONARY_KEY)?)
     }
 
+    /* synonyms */
+
+    pub fn user_defined_synonyms(
+        &self,
+        rtxn: &RoTxn<'_>,
+    ) -> heed::Result<BTreeMap<String, Vec<String>>> {
+        self.synonyms
+            .iter(rtxn)?
+            .map(|result| {
+                result.map(|(_, synonyms)| {
+                    (
+                        synonyms.original_key().to_owned(),
+                        synonyms.original_synonyms().map(ToOwned::to_owned).collect(),
+                    )
+                })
+            })
+            .collect()
+    }
+
     /* words prefixes fst */
 
     /// Writes the FST which is the words prefixes dictionary of the engine.
@@ -1985,11 +2003,16 @@ impl Index {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Synonyms {
+    // TODO can we use a Cows instead
     original_key: String,
     synonyms: Vec<String>,
 }
 
 impl Synonyms {
+    pub fn new(original_key: String, synonyms: Vec<String>) -> Synonyms {
+        Synonyms { original_key, synonyms }
+    }
+
     /// The original words key, e.g. "smart phone".
     pub fn original_key(&self) -> &str {
         &self.original_key

@@ -388,7 +388,18 @@ pub fn snap_settings(index: &Index) -> String {
     write_setting_to_snap!(distinct_field);
     write_setting_to_snap!(filterable_attributes_rules);
     write_setting_to_snap!(sortable_fields);
-    write_setting_to_snap!(synonyms);
+
+    // Synonyms are stored in a dedicated database
+    for result in index.synonyms.iter(&rtxn).unwrap() {
+        let (key, synonyms) = result.unwrap();
+        writeln!(
+            &mut snap,
+            "synonyms: {:?}",
+            (key, synonyms.synonyms().map(|words| words.collect::<Vec<_>>()).collect::<Vec<_>>())
+        )
+        .unwrap();
+    }
+
     write_setting_to_snap!(authorize_typos);
     write_setting_to_snap!(min_word_len_one_typo);
     write_setting_to_snap!(min_word_len_two_typos);

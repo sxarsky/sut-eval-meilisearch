@@ -258,14 +258,16 @@ pub fn make_ngram(
         partially_initialized_term_from_word(ctx, &ngram_str, max_nbr_typos, is_prefix, true)?;
 
     // Now add the synonyms
-    let index_synonyms = ctx.get_synonyms()?;
-
-    term.zero_typo.synonyms.extend(
-        index_synonyms.get(&words).cloned().unwrap_or_default().into_iter().map(|words| {
-            let words = words.into_iter().map(|w| Some(ctx.word_interner.insert(w))).collect();
-            ctx.phrase_interner.insert(Phrase { words })
-        }),
-    );
+    // TODO avoid collecting here
+    let words: Vec<_> = words.iter().map(AsRef::as_ref).collect();
+    if let Some(synonyms) = ctx.index.synonyms.get(ctx.txn, &words)? {
+        for synonym in synonyms.synonyms() {
+            let words =
+                synonym.into_iter().map(|w| Some(ctx.word_interner.insert(w.to_owned()))).collect();
+            let interned = ctx.phrase_interner.insert(Phrase { words });
+            term.zero_typo.synonyms.insert(interned);
+        }
+    }
 
     let term = QueryTerm {
         original: ngram_str_interned,

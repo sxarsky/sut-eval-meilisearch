@@ -124,17 +124,6 @@ impl<'ctx> SearchContext<'ctx> {
         self.prefix_search != PrefixSearch::Disabled
     }
 
-    /// Get synonyms with caching to avoid repeated database access
-    pub fn get_synonyms(&mut self) -> Result<&HashMap<Vec<String>, Vec<Vec<String>>>> {
-        match self.synonym_cache.cache {
-            Some(ref synonyms) => Ok(synonyms),
-            None => {
-                let synonyms = self.index.synonyms(self.txn)?;
-                Ok(self.synonym_cache.cache.insert(synonyms))
-            }
-        }
-    }
-
     pub fn attributes_to_search_on(
         &mut self,
         attributes_to_search_on: &'ctx [String],
