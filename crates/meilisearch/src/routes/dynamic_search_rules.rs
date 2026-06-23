@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use actix_web::web::{self, Data, Path};
 use actix_web::{HttpRequest, HttpResponse};
-use deserr::actix_web::AwebJson;
+use deserr::actix_web::{AwebJson, AwebQueryParameter};
 use index_scheduler::IndexScheduler;
-use meilisearch_types::deserr::DeserrJsonError;
+use meilisearch_types::deserr::{DeserrJsonError, DeserrQueryParamError};
 use meilisearch_types::dynamic_search_rules::{
     DynamicSearchRule, DynamicSearchRuleUpdateRequest, RuleUid,
 };
@@ -24,6 +24,7 @@ use crate::analytics::{Aggregate, Analytics};
 use crate::extractors::authentication::policies::ActionPolicy;
 use crate::extractors::authentication::GuardedData;
 use crate::proxy::{proxy, task_network_and_check_leader_and_version, Body};
+use crate::routes::indexes::documents::CustomMetadataQuery;
 use crate::routes::{Pagination, PaginationView, SummarizedTaskView, PAGINATION_DEFAULT_LIMIT};
 
 #[routes::routes(
@@ -289,6 +290,7 @@ async fn update_or_create_rule(
         Data<IndexScheduler>,
     >,
     uid: Path<RuleUid>,
+    query: AwebQueryParameter<CustomMetadataQuery, DeserrQueryParamError>,
     body: AwebJson<DynamicSearchRuleUpdateRequest, DeserrJsonError>,
     req: HttpRequest,
     analytics: Data<Analytics>,
@@ -298,17 +300,24 @@ async fn update_or_create_rule(
         .check_dynamic_search_rules("Using the `/dynamic-search-rules` routes")?;
     let network = index_scheduler.network();
 
+    let CustomMetadataQuery { custom_metadata } = query.into_inner();
+
     let uid = uid.into_inner();
     let rule = body.into_inner();
     let task_network = task_network_and_check_leader_and_version(&req, &network)?;
 
-    wip::fixme!("consider supporting custom metadata");
     let mut task = {
         let kind = KindWithContent::DsrUpdate(DsrUpdate::CreateOrUpdate {
             rule_id: uid,
             update: rule.clone(),
         });
-        index_scheduler.register_with_custom_metadata(kind, None, None, false, task_network)
+        index_scheduler.register_with_custom_metadata(
+            kind,
+            None,
+            custom_metadata,
+            false,
+            task_network,
+        )
     }?;
 
     if let Some(task_network) = task.network.take() {
@@ -351,6 +360,7 @@ async fn delete_rule(
         ActionPolicy<{ actions::DYNAMIC_SEARCH_RULES_DELETE }>,
         Data<IndexScheduler>,
     >,
+    query: AwebQueryParameter<CustomMetadataQuery, DeserrQueryParamError>,
     uid: Path<RuleUid>,
     req: HttpRequest,
     analytics: Data<Analytics>,
@@ -361,12 +371,19 @@ async fn delete_rule(
     let network = index_scheduler.network();
     let task_network = task_network_and_check_leader_and_version(&req, &network)?;
 
+    let CustomMetadataQuery { custom_metadata } = query.into_inner();
+
     let uid = uid.into_inner();
 
-    wip::fixme!("metadata");
     let mut task = {
         let kind = KindWithContent::DsrUpdate(DsrUpdate::Deletion(uid));
-        index_scheduler.register_with_custom_metadata(kind, None, None, false, task_network)?
+        index_scheduler.register_with_custom_metadata(
+            kind,
+            None,
+            custom_metadata,
+            false,
+            task_network,
+        )?
     };
 
     if let Some(task_network) = task.network.take() {
