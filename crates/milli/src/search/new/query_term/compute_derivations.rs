@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
+use charabia::Tokenizer;
 use fst::automaton::Str;
 use fst::{IntoStreamer, Streamer};
 use heed::types::DecodeIgnore;
@@ -167,6 +168,7 @@ fn find_one_two_typo_derivations(
 
 pub fn partially_initialized_term_from_word(
     ctx: &mut SearchContext<'_>,
+    tokenizer: &Tokenizer<'_>,
     word: &str,
     max_typo: u8,
     is_prefix: bool,
@@ -220,10 +222,7 @@ pub fn partially_initialized_term_from_word(
         .index
         .synonyms
         .get(ctx.txn, &[word])?
-        .map_or(Vec::<Vec<_>>::new(), |synonyms| {
-            // TODO do not collect into a vec here
-            synonyms.synonyms().map(|s| s.map(String::from).collect()).collect()
-        })
+        .map_or(Vec::<Vec<_>>::new(), |synonyms| synonyms.synonyms(tokenizer))
         .into_iter()
         .take(limits::MAX_SYNONYM_PHRASE_COUNT)
         .filter_map(|words| {

@@ -6,6 +6,7 @@ use std::fs::File;
 use std::path::Path;
 
 use cellulite::Cellulite;
+use charabia::Tokenizer;
 use heed::types::{SerdeJson, *};
 use heed::{CompactionOption, Database, DatabaseStat, RoTxn, RwTxn, Unspecified, WithoutTls};
 use indexmap::IndexMap;
@@ -31,6 +32,7 @@ use crate::prompt::PromptData;
 use crate::proximity::ProximityPrecision;
 use crate::sharding::{DbShardDocids, Shards};
 use crate::update::new::StdResult;
+use crate::update::settings::normalize;
 use crate::vector::db::IndexEmbeddingConfigs;
 use crate::vector::{Embedding, VectorStore, VectorStoreBackend, VectorStoreStats};
 use crate::{
@@ -2024,9 +2026,8 @@ impl Synonyms {
     }
 
     /// The normalized and split associated synonyms, e.g.
-    pub fn synonyms(&self) -> impl Iterator<Item = impl Iterator<Item = &str> + '_> + '_ {
-        // TODO we must normalize them and split whitespace and separator after
-        self.original_synonyms().map(|s| s.split_whitespace())
+    pub fn synonyms(&self, tokenizer: &Tokenizer) -> Vec<Vec<String>> {
+        self.original_synonyms().map(|s| normalize(tokenizer, s)).collect()
     }
 }
 
