@@ -574,19 +574,34 @@ impl IndexScheduler {
             Batch::NetworkReady { task } => self.process_network_ready(task, progress),
             Batch::DsrUpdate { rules, tasks, must_create_index } => {
                 let index_uid = DsrIndex;
+                let index;
+                let mut index_wtxn;
 
-                let index = if must_create_index {
+                let settings_congestion = if must_create_index {
                     // create the index if it doesn't already exist
                     let wtxn = self.env.write_txn()?;
-                    wip::fixme!("also set the settings when creating the index");
 
-                    self.index_mapper.create_index(wtxn, index_uid, None, None)?
+                    index = self.index_mapper.create_index(wtxn, index_uid, None, None)?;
+                    index_wtxn = index.write_txn()?;
+
+                    let must_stop_processing = self.scheduler.must_stop_processing.clone();
+
+                    let settings_congestion = self.apply_dsr_settings(
+                        &mut index_wtxn,
+                        &index,
+                        &progress,
+                        &must_stop_processing,
+                        current_batch.embedder_stats.clone(),
+                    )?;
+
+                    settings_congestion
                 } else {
                     let rtxn = self.env.read_txn()?;
-                    self.index_mapper.index(&rtxn, index_uid)?
+                    index = self.index_mapper.index(&rtxn, index_uid)?;
+                    index_wtxn = index.write_txn()?;
+                    None
                 };
 
-                let mut index_wtxn = index.write_txn()?;
                 let index_version = index.get_version(&index_wtxn)?.unwrap_or((1, 12, 0));
                 let package_version = (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
                 if index_version != package_version {
@@ -604,7 +619,7 @@ impl IndexScheduler {
                 )));
 
                 let pre_commit_dabases_sizes = index.database_sizes(&index_wtxn)?;
-                let (tasks, congestion) = self.apply_dsr_update(
+                let (tasks, update_congestion) = self.apply_dsr_update(
                     &mut index_wtxn,
                     &index,
                     rules.as_slice(),
@@ -647,7 +662,7 @@ impl IndexScheduler {
                 }
 
                 let info = ProcessBatchInfo {
-                    congestion,
+                    congestion: ChannelCongestion::merge(settings_congestion, update_congestion),
                     // In case we fail to the get post-commit sizes we decide
                     // that nothing changed and use the pre-commit sizes.
                     post_commit_dabases_sizes: post_commit_dabases_sizes

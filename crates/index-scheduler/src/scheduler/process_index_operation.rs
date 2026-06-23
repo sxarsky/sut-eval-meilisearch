@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bumpalo::collections::CollectIn;
@@ -10,11 +11,13 @@ use meilisearch_types::milli::progress::{EmbedderStats, Progress};
 use meilisearch_types::milli::update::new::indexer::{
     self, IndexOperations, Payload, UpdateByFunction,
 };
-use meilisearch_types::milli::update::DocumentAdditionResult;
+use meilisearch_types::milli::update::{DocumentAdditionResult, Setting};
 use meilisearch_types::milli::vector::RuntimeEmbedders;
-use meilisearch_types::milli::{self, ChannelCongestion};
+use meilisearch_types::milli::{
+    self, ChannelCongestion, FilterableAttributesRule, MustStopProcessing,
+};
 use meilisearch_types::network::Network;
-use meilisearch_types::settings::apply_settings_to_builder;
+use meilisearch_types::settings::{apply_settings_to_builder, Settings, TypoSettings};
 use meilisearch_types::tasks::{Details, DsrUpdate, KindWithContent, Status, Task};
 use meilisearch_types::Index;
 use roaring::RoaringBitmap;
@@ -569,6 +572,74 @@ impl IndexScheduler {
         }
     }
 
+    pub(crate) fn apply_dsr_settings<'i>(
+        &self,
+        index_wtxn: &mut RwTxn<'i>,
+        index: &'i Index,
+        progress: &Progress,
+        must_stop_processing: &MustStopProcessing,
+        embedder_stats: Arc<EmbedderStats>,
+    ) -> Result<Option<ChannelCongestion>> {
+        progress.update_progress(SettingsProgress::RetrievingAndMergingTheSettings);
+        let indexer_config = self.index_mapper.indexer_config();
+        let mut builder = milli::update::Settings::new(index_wtxn, &index, indexer_config);
+
+        let checked_settings = Settings {
+            displayed_attributes: Setting::Set(vec!["*".to_string()]).into(),
+            searchable_attributes: Setting::Set(vec![
+                "conditions.query.words".to_string(),
+            ])
+            .into(),
+            filterable_attributes: Setting::Set(vec![
+                FilterableAttributesRule::Field("active".into()),
+                FilterableAttributesRule::Field("conditions.time.start".into()),
+                FilterableAttributesRule::Field("conditions.time.end".into()),
+                FilterableAttributesRule::Field("conditions.query.isEmpty".into()),
+            ]),
+            sortable_attributes: {
+                let mut sortable_attributes: BTreeSet<_> = Default::default();
+                sortable_attributes.insert("precedence".to_string());
+                Setting::Set(sortable_attributes)
+            },
+            foreign_keys: Setting::NotSet,
+            ranking_rules: Setting::NotSet,
+            stop_words: Setting::NotSet,
+            non_separator_tokens: Setting::NotSet,
+            separator_tokens: Setting::NotSet,
+            dictionary: Setting::NotSet,
+            synonyms: Setting::NotSet,
+            distinct_attribute: Setting::NotSet,
+            proximity_precision: Setting::Set(
+                meilisearch_types::settings::ProximityPrecisionView::ByAttribute,
+            ),
+            typo_tolerance: Setting::Set(TypoSettings {
+                enabled: Setting::Set(false),
+                min_word_size_for_typos: Setting::NotSet,
+                disable_on_words: Setting::NotSet,
+                disable_on_attributes: Setting::NotSet,
+                disable_on_numbers: Setting::Set(true),
+            }),
+            faceting: Setting::NotSet,
+            pagination: Setting::NotSet,
+            embedders: Setting::NotSet,
+            search_cutoff_ms: Setting::NotSet,
+            localized_attributes: Setting::NotSet,
+            facet_search: Setting::Set(false),
+            prefix_search: Setting::Set(
+                meilisearch_types::settings::PrefixSearchSettings::Disabled,
+            ),
+            chat: Setting::NotSet,
+            _kind: std::marker::PhantomData,
+        };
+        apply_settings_to_builder(&checked_settings, &mut builder);
+
+        progress.update_progress(SettingsProgress::ApplyTheSettings);
+        let congestion = builder
+            .execute(&must_stop_processing, &progress, self.ip_policy(), embedder_stats)
+            .map_err(|err| Error::from_milli(err, None))?;
+        Ok(congestion)
+    }
+
     pub(crate) fn apply_dsr_update<'i>(
         &self,
         index_wtxn: &mut RwTxn<'i>,
@@ -593,10 +664,19 @@ impl IndexScheduler {
 
         for update in updates {
             match update {
-                DsrUpdate::CreateOrUpdate { rule_id, update: dynamic_search_rule } => {
+                DsrUpdate::CreateOrUpdate { rule_id, update } => {
+                    // unwrap: dynamic search rule always serializable
+                    let mut rule = serde_json::to_value(update).unwrap();
+
+                    // unwrap: DynamicSearchRuleUpdateRequest always serializes as an object
+                    rule.as_object_mut().unwrap().insert(
+                        "uid".into(),
+                        serde_json::Value::String(rule_id.as_str().to_owned()),
+                    );
+
                     let mut vec = bumpalo::collections::Vec::new_in(&indexer_alloc);
                     // unwrap: vec writing cannot fail + dynamic search rule always serializable
-                    serde_json::to_writer(&mut vec, dynamic_search_rule).unwrap();
+                    serde_json::to_writer(&mut vec, &rule).unwrap();
                     let vec = vec.into_bump_slice();
                     indexer.push_raw_operation(Payload::Update {
                         payload: vec,
