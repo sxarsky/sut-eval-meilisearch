@@ -2027,7 +2027,12 @@ impl Synonyms {
 
     /// The normalized and split associated synonyms, e.g.
     pub fn synonyms(&self, tokenizer: &Tokenizer) -> Vec<Vec<String>> {
-        self.original_synonyms().map(|s| normalize(tokenizer, s)).collect()
+        self.original_synonyms()
+            .filter_map(|s| {
+                let normalized = normalize(tokenizer, s);
+                Some(normalized).filter(|n| !n.is_empty())
+            })
+            .collect()
     }
 }
 

@@ -742,16 +742,28 @@ impl<'a, 't, 'i> Settings<'a, 't, 'i> {
                     }
                 }
 
-                // Make sure that we don't have duplicate synonyms.
-                new_synonyms.iter_mut().for_each(|(_, (_, synonyms))| {
-                    synonyms.sort_unstable();
-                    synonyms.dedup();
-                });
+                let new_synonyms: Vec<_> = new_synonyms
+                    .into_iter()
+                    .filter_map(|(key, (original_word, mut synonyms))| {
+                        synonyms.sort_unstable();
+                        synonyms.dedup();
+                        if synonyms.is_empty() {
+                            return None;
+                        }
+
+                        let synonyms = Synonyms::new(original_word, synonyms);
+                        let has_synonyms = !synonyms.synonyms(&tokenizer).is_empty();
+                        if has_synonyms {
+                            Some((key, synonyms))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
                 self.index.synonyms.clear(self.wtxn)?;
-                for (key, (original_word, synonyms)) in new_synonyms {
+                for (key, synonyms) in new_synonyms {
                     let key: Vec<&str> = key.iter().map(|k| k.as_ref()).collect();
-                    let synonyms = Synonyms::new(original_word, synonyms);
                     self.index.synonyms.put(self.wtxn, &key, &synonyms)?;
                 }
 
