@@ -586,15 +586,13 @@ impl IndexScheduler {
 
                     let must_stop_processing = self.scheduler.must_stop_processing.clone();
 
-                    let settings_congestion = self.apply_dsr_settings(
+                    self.apply_dsr_settings(
                         &mut index_wtxn,
                         &index,
                         &progress,
                         &must_stop_processing,
                         current_batch.embedder_stats.clone(),
-                    )?;
-
-                    settings_congestion
+                    )?
                 } else {
                     let rtxn = self.env.read_txn()?;
                     index = self.index_mapper.index(&rtxn, index_uid)?;

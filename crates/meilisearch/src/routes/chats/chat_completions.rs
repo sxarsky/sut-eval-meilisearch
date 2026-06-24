@@ -324,6 +324,7 @@ fn setup_search_tool(
     Ok(FunctionSupport { report_progress, report_sources, append_to_conversation })
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Process search request and return formatted results
 async fn process_search_request(
     index_scheduler: &GuardedData<

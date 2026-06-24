@@ -2,8 +2,9 @@ use meilisearch_types::dynamic_search_rules::{DynamicSearchRule, RuleUid};
 use meilisearch_types::heed::types::{SerdeJson, Str};
 use meilisearch_types::heed::{Database, Env, RwTxn, WithoutTls};
 use meilisearch_types::index_uid::DsrIndex;
+use meilisearch_types::milli::FaultSource;
 
-use crate::{Error, IndexScheduler, Result, RoFeatures};
+use crate::{Error, IndexScheduler, Result};
 
 const NUMBER_OF_DATABASES: u32 = 1;
 
@@ -17,8 +18,8 @@ pub struct DynamicSearchRules<'a> {
 
 impl<'a> DynamicSearchRules<'a> {
     // not fetching features in index_scheduler so that the caller can pass features instantiated once per request
-    pub fn new(index_scheduler: &'a IndexScheduler, features: RoFeatures) -> Option<Self> {
-        features.check_dynamic_search_rules("").is_ok().then_some(Self { index_scheduler })
+    pub fn new(index_scheduler: &'a IndexScheduler) -> Self {
+        Self { index_scheduler }
     }
 
     pub fn get(&self, rule_uid: &RuleUid) -> Result<Option<DynamicSearchRule>> {
@@ -27,7 +28,9 @@ impl<'a> DynamicSearchRules<'a> {
 
         let Some(doc) = dsrs.get(rule_uid.as_str()).map_err(from_milli)? else { return Ok(None) };
 
-        Ok(Some(DynamicSearchRule::try_from_meili_doc(doc).map_err(from_milli)?))
+        Ok(Some(
+            DynamicSearchRule::try_from_meili_doc(doc, FaultSource::Runtime).map_err(from_milli)?,
+        ))
     }
 
     pub fn milli_dsrs(

@@ -582,22 +582,30 @@ impl IndexScheduler {
     ) -> Result<Option<ChannelCongestion>> {
         progress.update_progress(SettingsProgress::RetrievingAndMergingTheSettings);
         let indexer_config = self.index_mapper.indexer_config();
-        let mut builder = milli::update::Settings::new(index_wtxn, &index, indexer_config);
+        let mut builder = milli::update::Settings::new(index_wtxn, index, indexer_config);
 
         let checked_settings = Settings {
             displayed_attributes: Setting::Set(vec!["*".to_string()]).into(),
             searchable_attributes: Setting::Set(vec![
+                // used to find query word constraints
                 "conditions.query.words".to_string(),
+                // used in list rules
+                "description".to_string(),
             ])
             .into(),
             filterable_attributes: Setting::Set(vec![
+                // filter by active or inactive rules
                 FilterableAttributesRule::Field("active".into()),
+                // used to find time constraints
                 FilterableAttributesRule::Field("conditions.time.start".into()),
+                // used to find time constraints
                 FilterableAttributesRule::Field("conditions.time.end".into()),
+                // used to find query isEmpty constraints
                 FilterableAttributesRule::Field("conditions.query.isEmpty".into()),
             ]),
             sortable_attributes: {
                 let mut sortable_attributes: BTreeSet<_> = Default::default();
+                // used to sort rules by precedence in responses
                 sortable_attributes.insert("precedence".to_string());
                 Setting::Set(sortable_attributes)
             },
@@ -635,7 +643,7 @@ impl IndexScheduler {
 
         progress.update_progress(SettingsProgress::ApplyTheSettings);
         let congestion = builder
-            .execute(&must_stop_processing, &progress, self.ip_policy(), embedder_stats)
+            .execute(must_stop_processing, progress, self.ip_policy(), embedder_stats)
             .map_err(|err| Error::from_milli(err, None))?;
         Ok(congestion)
     }

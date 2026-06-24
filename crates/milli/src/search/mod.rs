@@ -81,6 +81,7 @@ pub struct Search<'a> {
     locales: Option<Vec<Language>>,
     progress: &'a Progress,
     dynamic_search_rules: Option<&'a DynamicSearchRules>,
+    candidates: Option<&'a RoaringBitmap>,
 }
 
 impl<'a> Search<'a> {
@@ -116,6 +117,7 @@ impl<'a> Search<'a> {
             ranking_score_threshold: None,
             progress,
             dynamic_search_rules: None,
+            candidates: None,
         }
     }
 
@@ -233,6 +235,14 @@ impl<'a> Search<'a> {
         self
     }
 
+    /// Limit the results to **at most** candidates.
+    ///
+    /// If there is a specified filter, it is applied on top of the candidates.
+    pub fn candidates(&mut self, candidates: &'a RoaringBitmap) -> &mut Search<'a> {
+        self.candidates = Some(candidates);
+        self
+    }
+
     pub fn index_uid(&self) -> &'a str {
         self.index_uid
     }
@@ -245,7 +255,7 @@ impl<'a> Search<'a> {
         if has_vector {
             let ctx =
                 SearchContext::new(self.index, self.rtxn, self.index_uid, self.before_search)?;
-            filtered_universe(ctx.index, ctx.txn, &self.filter, self.progress)
+            filtered_universe(ctx.index, ctx.txn, &self.filter, self.candidates, self.progress)
         } else {
             Ok(self.execute()?.candidates)
         }
@@ -287,7 +297,8 @@ impl<'a> Search<'a> {
             }
         }
 
-        let mut universe = filtered_universe(ctx.index, ctx.txn, &self.filter, self.progress)?;
+        let mut universe =
+            filtered_universe(ctx.index, ctx.txn, &self.filter, self.candidates, self.progress)?;
 
         let (query_terms, pins, used_negative_operator) =
             self.build_located_query_terms(&mut ctx, &mut universe)?;
@@ -443,6 +454,7 @@ impl fmt::Debug for Search<'_> {
             deadline,
             ranking_score_threshold,
             locales,
+            candidates,
             progress: _,
             dynamic_search_rules: _,
         } = self;
@@ -468,6 +480,7 @@ impl fmt::Debug for Search<'_> {
             .field("deadline", deadline)
             .field("ranking_score_threshold", ranking_score_threshold)
             .field("locales", locales)
+            .field("candidates", candidates)
             .finish()
     }
 }

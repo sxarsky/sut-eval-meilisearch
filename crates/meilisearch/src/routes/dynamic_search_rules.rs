@@ -1,24 +1,22 @@
-use std::collections::BTreeMap;
-
 use actix_web::web::{self, Data, Path};
 use actix_web::{HttpRequest, HttpResponse};
 use deserr::actix_web::{AwebJson, AwebQueryParameter};
 use index_scheduler::IndexScheduler;
+use itertools::Itertools;
 use meilisearch_types::deserr::{DeserrJsonError, DeserrQueryParamError};
 use meilisearch_types::dynamic_search_rules::{
     DynamicSearchRule, DynamicSearchRuleUpdateRequest, RuleUid,
 };
 use meilisearch_types::error::deserr_codes::{
     InvalidDynamicSearchRuleFilter, InvalidDynamicSearchRuleFilterActive,
-    InvalidDynamicSearchRuleFilterAttributePatterns, InvalidDynamicSearchRuleLimit,
+    InvalidDynamicSearchRuleFilterQuery, InvalidDynamicSearchRuleLimit,
     InvalidDynamicSearchRuleOffset,
 };
 use meilisearch_types::error::{Code, ErrorCode, ResponseError};
 use meilisearch_types::keys::actions;
-use meilisearch_types::milli::{AttributePatterns, PatternMatch};
+use meilisearch_types::milli::SearchResult;
 use meilisearch_types::tasks::{DsrUpdate, KindWithContent};
 use serde::Serialize;
-use wip::WipOptionExt as _;
 
 use crate::analytics::{Aggregate, Analytics};
 use crate::extractors::authentication::policies::ActionPolicy;
@@ -44,8 +42,8 @@ pub struct DynamicSearchRulesApi;
 #[derive(Debug)]
 pub struct ListRulesFilter {
     /// Only include rules whose names match these patterns (e.g. `["black-friday", "promo*"]`).
-    #[request(default, error = DeserrJsonError<InvalidDynamicSearchRuleFilterAttributePatterns>)]
-    pub attribute_patterns: Option<AttributePatterns>,
+    #[request(default, error = DeserrJsonError<InvalidDynamicSearchRuleFilterQuery>)]
+    pub query: Option<String>,
     /// Only include rules that are active (true) or not active (false).
     #[request(default, error = DeserrJsonError<InvalidDynamicSearchRuleFilterActive>)]
     pub active: Option<bool>,
@@ -63,29 +61,6 @@ pub struct ListRules {
     /// Optional filter to restrict which rules are returned (e.g. by attribute patterns or by properties like if the rule is active or not)
     #[request(default, error = DeserrJsonError<InvalidDynamicSearchRuleFilter>)]
     pub filter: Option<ListRulesFilter>,
-}
-
-impl ListRules {
-    fn apply_filter(&self, rule: &DynamicSearchRule) -> bool {
-        if let Some(filter) = &self.filter {
-            if let Some(patterns) = &filter.attribute_patterns {
-                if matches!(
-                    patterns.match_str(&rule.uid),
-                    PatternMatch::NoMatch | PatternMatch::Parent
-                ) {
-                    return false;
-                }
-            }
-
-            if let Some(active) = &filter.active {
-                if *active != rule.active {
-                    return false;
-                }
-            }
-        }
-
-        true
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -181,14 +156,54 @@ async fn list_rules(
     >,
     body: AwebJson<ListRules, DeserrJsonError>,
 ) -> Result<HttpResponse, ResponseError> {
-    index_scheduler
-        .features()
-        .check_dynamic_search_rules("Using the `/dynamic-search-rules` routes")?;
+    let dsrs = index_scheduler.dynamic_search_rules(
+        index_scheduler.features(),
+        "Calling the `POST /dynamic-search-rules` route",
+    )?;
 
-    let rules: BTreeMap<String, DynamicSearchRule> = wip::wip!();
-    let pagination = Pagination { offset: body.0.offset, limit: body.0.limit };
+    let ListRules { offset, limit, filter } = body.into_inner();
+
+    let pagination = Pagination { offset, limit };
+
+    let Some(dsrs) = dsrs.milli_dsrs()? else {
+        let pagination_view = pagination.empty();
+        return Ok(HttpResponse::Ok().json(pagination_view));
+    };
+    let mut rule_ids = dsrs.all_rule_ids()?;
+
+    let query = if let Some(filter) = filter {
+        if let Some(is_active) = filter.active {
+            rule_ids &= dsrs.active_rule_ids(is_active)?;
+        }
+        filter.query
+    } else {
+        None
+    };
+
+    let SearchResult {
+        matching_words: _,
+        candidates,
+        documents_ids: rule_ids,
+        document_scores: _,
+        degraded: _,
+        used_negative_operator: _,
+        query_vector: _,
+    } = dsrs.search_in_description_and_words(query, rule_ids, limit, offset)?;
+
+    let rules = dsrs
+        .rules_from_rule_ids(rule_ids)
+        .map_ok(|doc| {
+            DynamicSearchRule::try_from_meili_doc(
+                doc,
+                meilisearch_types::milli::FaultSource::Runtime,
+            )
+        })
+        .map(|res| res.flatten());
+
+    let rules: meilisearch_types::milli::Result<Vec<_>> = rules.collect();
+
     let pagination_view =
-        pagination.auto_paginate_counting(rules.values().filter(|rule| body.0.apply_filter(rule)));
+        PaginationView { results: rules?, offset, limit, total: candidates.len() as usize };
 
     Ok(HttpResponse::Ok().json(pagination_view))
 }
@@ -237,11 +252,12 @@ async fn get_rule(
     >,
     uid: Path<RuleUid>,
 ) -> Result<HttpResponse, ResponseError> {
-    let features = index_scheduler.features();
-    features.check_dynamic_search_rules("Using the `/dynamic-search-rules` routes")?;
+    let rules = index_scheduler.dynamic_search_rules(
+        index_scheduler.features(),
+        "Calling the `GET /dynamic-search-rules/{:ruleUid}` route",
+    )?;
 
     let uid = uid.into_inner();
-    let rules = index_scheduler.dynamic_search_rules(features).unwrap_wip();
     let rule = rules.get(&uid)?.ok_or(DynamicSearchRulesError::NotFound(uid))?;
 
     Ok(HttpResponse::Ok().json(rule))

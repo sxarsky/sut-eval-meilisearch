@@ -1497,7 +1497,9 @@ impl SearchByIndex {
 
                 let dsrs = params
                     .index_scheduler
-                    .dynamic_search_rules(params.features)
+                    .dynamic_search_rules(params.features, "")
+                    // ignore error: having the feature disabled is actually allowed in search
+                    .ok()
                     .and_then(|dsrs| dsrs.milli_dsrs().transpose())
                     .transpose()?;
 

@@ -65,7 +65,7 @@ pub use self::asc_desc::{AscDesc, AscDescError, Member, SortError};
 pub use self::attribute_patterns::{AttributePatterns, PatternMatch};
 pub use self::criterion::{default_criteria, AttributeState, Criterion, CriterionError};
 pub use self::error::{
-    Error, FieldIdMapMissingEntry, InternalError, SerializationError, UserError,
+    Error, FaultSource, FieldIdMapMissingEntry, InternalError, SerializationError, UserError,
 };
 pub use self::external_documents_ids::ExternalDocumentsIds;
 pub use self::fieldids_weights_map::FieldidsWeightsMap;

@@ -1171,8 +1171,14 @@ impl IndexScheduler {
         self.features.network()
     }
 
-    pub fn dynamic_search_rules(&self, features: RoFeatures) -> Option<DynamicSearchRules<'_>> {
-        DynamicSearchRules::new(self, features)
+    pub fn dynamic_search_rules(
+        &self,
+        features: RoFeatures,
+        disabled_action: &'static str,
+    ) -> Result<DynamicSearchRules<'_>> {
+        features.check_dynamic_search_rules(disabled_action)?;
+
+        Ok(DynamicSearchRules::new(self))
     }
 
     pub fn update_runtime_webhooks(&self, runtime: RuntimeWebhooks) -> Result<()> {

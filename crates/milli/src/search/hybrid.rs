@@ -286,6 +286,7 @@ impl Search<'_> {
             locales: self.locales.clone(),
             progress: self.progress,
             dynamic_search_rules: self.dynamic_search_rules,
+            candidates: self.candidates,
         };
 
         let semantic = search.semantic.take();

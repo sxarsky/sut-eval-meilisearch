@@ -5,13 +5,17 @@ use itertools::Itertools as _;
 use roaring::RoaringBitmap;
 use serde::Deserialize;
 use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 use crate::heed_codec::facet::{FacetGroupKey, FacetGroupValue};
 use crate::search::facet::ascending_facet_sort;
 use crate::search::facet::facet_range_search::find_docids_of_facet_within_bounds;
 use crate::search::new::LocatedQueryTerm;
 use crate::update::new::document::DocumentFromDb;
-use crate::{DocumentId, FieldsIdsMap, Index, PinDoc, Result, SearchContext, MAX_COUNTED_WORDS};
+use crate::{
+    DocumentId, FieldsIdsMap, Index, PinDoc, Result, SearchContext, SearchResult, UserError,
+    MAX_COUNTED_WORDS,
+};
 
 type RuleId = u32;
 
@@ -35,8 +39,15 @@ impl DynamicSearchRules {
             return Ok(None);
         };
 
+        self.get_from_internal_id(docid)
+    }
+
+    fn get_from_internal_id<'t>(
+        &'t self,
+        rule_id: RuleId,
+    ) -> Result<Option<DocumentFromDb<'t, FieldsIdsMap>>> {
         let Some(doc) =
-            DocumentFromDb::new(docid, &self.rtxn, &self.index, &self.db_fields_ids_map)?
+            DocumentFromDb::new(rule_id, &self.rtxn, &self.index, &self.db_fields_ids_map)?
         else {
             return Ok(None);
         };
@@ -50,7 +61,7 @@ impl DynamicSearchRules {
         universe: &mut RoaringBitmap,
         search_context: &SearchContext,
     ) -> Result<Vec<PinDoc>> {
-        let active_rules = self.active_rules(query_terms, search_context)?;
+        let active_rules = self.active_rules_for_query(query_terms, search_context)?;
 
         self.find_pins(self.rule_ids_sorted_by_precedence(active_rules)?, search_context)
             .filter(
@@ -63,6 +74,76 @@ impl DynamicSearchRules {
                 },
             )
             .collect()
+    }
+
+    pub fn rules_from_rule_ids<'t, I>(
+        &'t self,
+        rule_ids: I,
+    ) -> impl ExactSizeIterator<Item = Result<DocumentFromDb<'t, FieldsIdsMap>>>
+    where
+        I: IntoIterator<Item = RuleId>,
+        I::IntoIter: ExactSizeIterator + 't,
+    {
+        rule_ids.into_iter().map(|rule_id| {
+            self.get_from_internal_id(rule_id)
+                .transpose()
+                .ok_or(UserError::UnknownInternalDocumentId { document_id: rule_id }.into())
+                .flatten()
+        })
+    }
+
+    /// Find the list of active or inactive rules, depending on `is_active`.
+    ///
+    /// If no rule contains the "active" field, then all declared rules are considered active.
+    pub fn active_rule_ids(&self, is_active: bool) -> Result<RoaringBitmap> {
+        let left_bound = if is_active { "true" } else { "false" };
+        let active_rules = if let Some(active_fid) = self.db_fields_ids_map.id("active") {
+            let active_key = FacetGroupKey { field_id: active_fid, level: 0, left_bound };
+            let Some(FacetGroupValue { size: _, bitmap: active_rules }) =
+                self.index.facet_id_string_docids.get(&self.rtxn, &active_key)?
+            else {
+                return Ok(RoaringBitmap::new());
+            };
+            active_rules
+        } else if is_active {
+            self.index.documents_ids(&self.rtxn)?
+        } else {
+            RoaringBitmap::default()
+        };
+        Ok(active_rules)
+    }
+
+    pub fn all_rule_ids(&self) -> Result<RoaringBitmap> {
+        Ok(self.index.documents_ids(&self.rtxn)?)
+    }
+
+    pub fn search_in_description_and_words(
+        &self,
+        query: Option<String>,
+        universe: RoaringBitmap,
+        limit: usize,
+        offset: usize,
+    ) -> Result<SearchResult> {
+        let progress = Default::default();
+        wip::fixme!("do something about dsr index");
+        let mut search = self.index.search(&self.rtxn, "", OffsetDateTime::now_utc(), &progress);
+
+        if let Some(query) = query {
+            search.query(query);
+        }
+
+        search.candidates(&universe);
+
+        search.exhaustive_number_hits(true);
+        search.max_total_hits(Some(
+            self.index.pagination_max_total_hits(&self.rtxn)?.unwrap_or(1000) as usize,
+        ));
+        search.limit(limit);
+        search.offset(offset);
+        let searchable_attrs = ["description".into(), "conditions.query.words".into()];
+        search.searchable_attributes(&searchable_attrs);
+
+        search.execute()
     }
 
     fn find_pins<'a>(
@@ -94,16 +175,14 @@ impl DynamicSearchRules {
                         tracing::warn!(
                         "could not deserialize actions of rule with internal id `{rule_id}`: {err}"
                     );
-                        return Ok(None);
+                        Ok(None)
                     }
                 }
             })
             .filter_map(|x| x.transpose())
             .flatten_ok()
             .filter_map_ok(|action| {
-                let Some(doc_id) = action.active_document(search_context).transpose() else {
-                    return None;
-                };
+                let doc_id = action.active_document(search_context).transpose()?;
 
                 let doc_id = match doc_id {
                     Ok(doc_id) => doc_id,
@@ -118,24 +197,13 @@ impl DynamicSearchRules {
             .map(|x| x.flatten())
     }
 
-    fn active_rules(
+    fn active_rules_for_query(
         &self,
         query_terms: &[LocatedQueryTerm],
         search_context: &SearchContext,
     ) -> Result<RoaringBitmap> {
         // 1. include rules that are active
-        let mut active_rules = if let Some(active_fid) = self.db_fields_ids_map.id("active") {
-            let active_key = FacetGroupKey { field_id: active_fid, level: 0, left_bound: "true" };
-            let Some(FacetGroupValue { size: _, bitmap: active_rules }) =
-                self.index.facet_id_string_docids.get(&self.rtxn, &active_key)?
-            else {
-                return Ok(RoaringBitmap::new());
-            };
-            active_rules
-        } else {
-            self.index.documents_ids(&self.rtxn)?
-        };
-
+        let mut active_rules = self.active_rule_ids(true)?;
         // 2. exclude rules that have a time condition that is not met
         let target_time = search_context.before_search.format(&Rfc3339).unwrap();
         let db = self.index.facet_id_string_docids;
@@ -225,7 +293,7 @@ impl DynamicSearchRules {
                     continue;
                 };
 
-                word_rules ^= &active_rules;
+                word_rules &= &active_rules;
 
                 if word_rules.is_empty() {
                     continue;
@@ -234,43 +302,37 @@ impl DynamicSearchRules {
                 words_rules.push(word_rules);
             }
 
-            wip::fixme!("dont forget rules that don't have a query.words field");
-
-            // will be populated with all the rules that have no constraints on the words,
-            // or rules whose constraints on the words are satisfied by the query
-            let mut constraint_all_words_rules = RoaringBitmap::new();
-
             // 5. check that the correct constraints are present
-            for constraint_count in 0..=words_rules.len() {
-                // no wraparound in the truncation: words_rules.len() < words_count which is capped to a u8
-                let constraint_count = constraint_count as u8;
+            for constraint_count in 0..=words_count {
                 let Some(constraint_count_rules) =
                     word_count_db.get(&self.rtxn, &(query_words_fid, constraint_count))?
                 else {
                     continue;
                 };
 
+                let mut verifying_constraints_rules = RoaringBitmap::new();
+
                 match constraint_count {
                     0 => {
-                        constraint_all_words_rules |= &constraint_count_rules;
+                        verifying_constraints_rules |= &constraint_count_rules;
                     }
                     1 => {
                         for word_rules in words_rules.iter() {
-                            constraint_all_words_rules |= &constraint_count_rules ^ word_rules;
+                            verifying_constraints_rules |= &constraint_count_rules & word_rules;
                         }
                     }
                     k => {
                         for word_rules in words_rules.iter().combinations(k.into()) {
-                            constraint_all_words_rules |= roaring::MultiOps::intersection(
+                            verifying_constraints_rules |= roaring::MultiOps::intersection(
                                 std::iter::once(&constraint_count_rules)
                                     .chain(word_rules.into_iter()),
                             );
                         }
                     }
                 }
+                // remove all rules that have that number of words but don't verify the constraints
+                active_rules -= constraint_count_rules - verifying_constraints_rules;
             }
-
-            active_rules ^= constraint_all_words_rules;
         }
 
         Ok(active_rules)

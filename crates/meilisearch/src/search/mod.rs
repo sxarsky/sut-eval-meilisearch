@@ -1777,7 +1777,9 @@ pub fn perform_search(
     )?;
 
     let dsrs = index_scheduler
-        .dynamic_search_rules(params.features)
+        .dynamic_search_rules(params.features, "")
+        // ignore error: having the feature disabled is actually allowed in search
+        .ok()
         .and_then(|dsrs| dsrs.milli_dsrs().transpose())
         .transpose()?;
 
@@ -2900,11 +2902,10 @@ fn format_value(
 
 pub fn elapsed(since: time::OffsetDateTime) -> std::time::Duration {
     let now = time::OffsetDateTime::now_utc();
-    let elapsed = if now > since {
+    if now > since {
         // unwrap: now > since
         (now - since).try_into().unwrap()
     } else {
         std::time::Duration::ZERO
-    };
-    elapsed
+    }
 }

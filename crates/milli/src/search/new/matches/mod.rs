@@ -521,7 +521,8 @@ mod tests {
                 Search::new(rtxn, index, "test", time::OffsetDateTime::now_utc(), &progress);
             let mut ctx =
                 SearchContext::new(index, rtxn, "test", time::OffsetDateTime::now_utc()).unwrap();
-            let mut universe = filtered_universe(ctx.index, ctx.txn, &None, &progress).unwrap();
+            let mut universe =
+                filtered_universe(ctx.index, ctx.txn, &None, None, &progress).unwrap();
 
             search.query(query);
 
