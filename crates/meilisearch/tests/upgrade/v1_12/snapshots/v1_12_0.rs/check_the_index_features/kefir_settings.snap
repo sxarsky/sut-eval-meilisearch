@@ -31,11 +31,7 @@ source: crates/meilisearch/tests/upgrade/v1_12/v1_12_0.rs
   "nonSeparatorTokens": [],
   "separatorTokens": [],
   "dictionary": [],
-  "synonyms": {
-    "boubou": [
-      "kefir"
-    ]
-  },
+  "synonyms": {},
   "distinctAttribute": null,
   "proximityPrecision": "byWord",
   "typoTolerance": {
