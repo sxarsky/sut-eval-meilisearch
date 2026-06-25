@@ -365,10 +365,7 @@
             "*": "alpha"
           }
         },
-        "filterableAttributes": [
-          "genres",
-          "release_date"
-        ],
+        "filterableAttributes": "[filterableAttributes]",
         "localizedAttributes": null,
         "nonSeparatorTokens": [],
         "pagination": {
