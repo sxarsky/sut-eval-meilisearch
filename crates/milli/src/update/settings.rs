@@ -726,11 +726,6 @@ impl<'a, 't, 'i> Settings<'a, 't, 'i> {
                 for (original_word, synonyms) in user_synonyms {
                     // Normalize only the key
                     let normalized_word = normalize(&tokenizer, original_word);
-                    // let normalized_synonyms: Vec<_> = synonyms
-                    //     .iter()
-                    //     .map(|synonym| normalize(&tokenizer, synonym))
-                    //     .filter(|synonym| !synonym.is_empty())
-                    //     .collect();
 
                     // Store the normalized synonyms under the normalized word,
                     // merging the possible duplicate words.
@@ -766,6 +761,8 @@ impl<'a, 't, 'i> Settings<'a, 't, 'i> {
                     let key: Vec<&str> = key.iter().map(|k| k.as_ref()).collect();
                     self.index.synonyms.put(self.wtxn, &key, &synonyms)?;
                 }
+
+                self.index.put_user_defined_synonyms(self.wtxn, user_synonyms)?;
 
                 Ok(())
             }

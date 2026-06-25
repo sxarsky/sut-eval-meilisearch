@@ -207,7 +207,9 @@
           "release_date"
         ],
         "stopWords": [],
-        "synonyms": {},
+        "synonyms": {
+          "chaussure": ["sport shoes"]
+        },
         "typoTolerance": {
           "disableOnAttributes": [
             "genres"

@@ -68,6 +68,7 @@ pub mod main_key {
     pub const NON_SEPARATOR_TOKENS_KEY: &str = "non-separator-tokens";
     pub const SEPARATOR_TOKENS_KEY: &str = "separator-tokens";
     pub const DICTIONARY_KEY: &str = "dictionary";
+    pub const USER_DEFINED_SYNONYMS_KEY: &str = "user-defined-synonyms";
     pub const WORDS_FST_KEY: &str = "words-fst";
     pub const WORDS_PREFIXES_FST_KEY: &str = "words-prefixes-fst";
     pub const CREATED_AT_KEY: &str = "created-at";
@@ -1348,17 +1349,23 @@ impl Index {
         &self,
         rtxn: &RoTxn<'_>,
     ) -> heed::Result<BTreeMap<String, Vec<String>>> {
-        self.synonyms
-            .iter(rtxn)?
-            .map(|result| {
-                result.map(|(_, synonyms)| {
-                    (
-                        synonyms.original_key().to_owned(),
-                        synonyms.original_synonyms().map(ToOwned::to_owned).collect(),
-                    )
-                })
-            })
-            .collect()
+        Ok(self
+            .main
+            .remap_types::<Str, SerdeBincode<_>>()
+            .get(rtxn, main_key::USER_DEFINED_SYNONYMS_KEY)?
+            .unwrap_or_default())
+    }
+
+    pub fn put_user_defined_synonyms(
+        &self,
+        wtxn: &mut RwTxn<'_>,
+        user_defined_synonyms: &BTreeMap<String, Vec<String>>,
+    ) -> heed::Result<()> {
+        self.main.remap_types::<Str, SerdeBincode<_>>().put(
+            wtxn,
+            main_key::USER_DEFINED_SYNONYMS_KEY,
+            user_defined_synonyms,
+        )
     }
 
     /* words prefixes fst */
