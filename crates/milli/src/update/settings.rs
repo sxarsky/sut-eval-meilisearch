@@ -730,23 +730,23 @@ impl<'a, 't, 'i> Settings<'a, 't, 'i> {
                     // Store the normalized synonyms under the normalized word,
                     // merging the possible duplicate words.
                     if !normalized_word.is_empty() {
-                        let entry = new_synonyms
+                        new_synonyms
                             .entry(normalized_word)
-                            .or_insert_with(|| (original_word.clone(), Vec::new()));
-                        entry.1.extend(synonyms.iter().cloned());
+                            .or_insert_with(Vec::new)
+                            .extend(synonyms.iter().cloned());
                     }
                 }
 
                 let new_synonyms: Vec<_> = new_synonyms
                     .into_iter()
-                    .filter_map(|(key, (original_word, mut synonyms))| {
+                    .filter_map(|(key, mut synonyms)| {
                         synonyms.sort_unstable();
                         synonyms.dedup();
                         if synonyms.is_empty() {
                             return None;
                         }
 
-                        let synonyms = Synonyms::new(original_word, synonyms);
+                        let synonyms = Synonyms::new(synonyms);
                         let has_synonyms = !synonyms.synonyms(&tokenizer).is_empty();
                         if has_synonyms {
                             Some((key, synonyms))

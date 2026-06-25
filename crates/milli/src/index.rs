@@ -2012,19 +2012,12 @@ impl Index {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Synonyms {
-    // TODO can we use a Cows instead
-    original_key: String,
     synonyms: Vec<String>,
 }
 
 impl Synonyms {
-    pub fn new(original_key: String, synonyms: Vec<String>) -> Synonyms {
-        Synonyms { original_key, synonyms }
-    }
-
-    /// The original words key, e.g. "smart phone".
-    pub fn original_key(&self) -> &str {
-        &self.original_key
+    pub fn new(synonyms: Vec<String>) -> Synonyms {
+        Synonyms { synonyms }
     }
 
     /// The original, unnormalized, unsplit, associated synonyms, e.g. "iphone".

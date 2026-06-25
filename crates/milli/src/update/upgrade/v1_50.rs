@@ -46,7 +46,7 @@ impl UpgradeIndex for MigrateSynonymsToDedicatedDatabase {
         for (original_key, synonyms) in user_defined_synonyms {
             let normalized = normalize(&tokenizer, &original_key);
             let key: Vec<_> = normalized.iter().map(AsRef::as_ref).collect();
-            let synonyms = Synonyms::new(original_key, synonyms);
+            let synonyms = Synonyms::new(synonyms);
             if synonyms.synonyms(&tokenizer).is_empty() {
                 continue;
             }
