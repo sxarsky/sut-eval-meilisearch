@@ -125,7 +125,6 @@ impl DynamicSearchRules {
         offset: usize,
     ) -> Result<SearchResult> {
         let progress = Default::default();
-        wip::fixme!("do something about dsr index");
         let mut search = self.index.search(&self.rtxn, "", OffsetDateTime::now_utc(), &progress);
 
         if let Some(query) = query {
@@ -379,11 +378,11 @@ impl RuleAction {
         }) {
             return Ok(None);
         }
-        wip::fixme!("check current behavior of main when adding a DSR with a pin without a selector.id. add a unit test if necessary");
 
-        let Some(docid) = self.selector.id.as_deref() else { return Ok(None) };
-
-        Ok(search_context.index.external_documents_ids().get(search_context.txn, docid)?)
+        Ok(search_context
+            .index
+            .external_documents_ids()
+            .get(search_context.txn, &self.selector.id)?)
     }
 }
 
@@ -392,8 +391,7 @@ impl RuleAction {
 struct Selector {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index_uid: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: String,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
