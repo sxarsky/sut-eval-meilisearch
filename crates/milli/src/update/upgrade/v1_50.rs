@@ -1,16 +1,30 @@
+use std::collections::BTreeMap;
+
 use charabia::TokenizerBuilder;
+use heed::types::{SerdeBincode, Str};
 use heed::RwTxn;
 
 use super::{UpgradeIndex, UpgradeParams};
 use crate::{index::Synonyms, update::settings::normalize, Index, Result};
+
+pub const SYNONYMS_KEY: &str = "synonyms";
+pub const USER_DEFINED_SYNONYMS_KEY: &str = "user-defined-synonyms";
 
 /// Migrate the synonyms from the old format to the new database.
 pub(super) struct MigrateSynonymsToDedicatedDatabase();
 
 impl UpgradeIndex for MigrateSynonymsToDedicatedDatabase {
     fn upgrade(&self, wtxn: &mut RwTxn, index: &Index, _params: UpgradeParams<'_>) -> Result<bool> {
+        // We must read the old user defined synonyms that were stored in the main database
         let rtxn = index.read_txn()?;
-        let user_defined_synonyms = index.user_defined_synonyms(wtxn)?;
+        let user_defined_synonyms: BTreeMap<String, Vec<String>> = index
+            .main
+            .remap_types::<Str, SerdeBincode<_>>()
+            .get(&rtxn, USER_DEFINED_SYNONYMS_KEY)?
+            .unwrap_or_default();
+
+        index.main.remap_key_type::<Str>().delete(wtxn, SYNONYMS_KEY)?;
+        index.main.remap_key_type::<Str>().delete(wtxn, USER_DEFINED_SYNONYMS_KEY)?;
 
         if user_defined_synonyms.is_empty() {
             return Ok(false);
