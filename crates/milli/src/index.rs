@@ -1368,6 +1368,10 @@ impl Index {
         )
     }
 
+    pub fn delete_user_defined_synonyms(&self, wtxn: &mut RwTxn<'_>) -> heed::Result<bool> {
+        self.main.remap_key_type::<Str>().delete(wtxn, main_key::USER_DEFINED_SYNONYMS_KEY)
+    }
+
     /* words prefixes fst */
 
     /// Writes the FST which is the words prefixes dictionary of the engine.

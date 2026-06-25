@@ -766,7 +766,11 @@ impl<'a, 't, 'i> Settings<'a, 't, 'i> {
 
                 Ok(())
             }
-            Setting::Reset => Ok(self.index.synonyms.clear(self.wtxn)?),
+            Setting::Reset => {
+                self.index.synonyms.clear(self.wtxn)?;
+                self.index.delete_user_defined_synonyms(self.wtxn)?;
+                Ok(())
+            }
             Setting::NotSet => Ok(()),
         }
     }
