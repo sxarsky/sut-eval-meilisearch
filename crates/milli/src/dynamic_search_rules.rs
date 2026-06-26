@@ -321,6 +321,7 @@ impl DynamicSearchRules {
                         }
                     }
                     k => {
+                        wip::fixme!("limit the number of combinations");
                         for word_rules in words_rules.iter().combinations(k.into()) {
                             verifying_constraints_rules |= roaring::MultiOps::intersection(
                                 std::iter::once(&constraint_count_rules)
