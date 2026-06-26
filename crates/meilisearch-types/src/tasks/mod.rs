@@ -734,6 +734,8 @@ impl FromStr for Kind {
             Ok(Kind::IndexCompaction)
         } else if kind.eq_ignore_ascii_case("networkTopologyChange") {
             Ok(Kind::NetworkTopologyChange)
+        } else if kind.eq_ignore_ascii_case("dsrUpdate") {
+            Ok(Kind::DsrUpdate)
         } else {
             Err(ParseTaskKindError(kind.to_owned()))
         }
