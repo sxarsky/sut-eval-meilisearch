@@ -123,12 +123,17 @@ impl Aggregate for DeleteDynamicSearchRuleAnalytics {
                 {
                     "uid": "black-friday",
                     "description": "Black Friday 2025 rules",
-                    "priority": 10,
+                    "precedence": 10,
                     "active": true,
-                    "conditions": [
-                        { "scope": "query", "isEmpty": true },
-                        { "scope": "time", "start": "2025-11-28T00:00:00Z", "end": "2025-11-28T23:59:59Z" }
-                    ],
+                    "conditions": {
+                        "query": {
+                            "isEmpty": true
+                        },
+                        "time": {
+                            "start": "2025-11-28T00:00:00Z",
+                            "end": "2025-11-28T23:59:59Z"
+                        }
+                    },
                     "actions": [
                         {
                             "selector": { "indexUid": "products", "id": "123" },
@@ -218,12 +223,17 @@ async fn list_rules(
         (status = OK, description = "Dynamic search rule returned.", body = DynamicSearchRule, content_type = "application/json", example = json!({
             "uid": "black-friday",
             "description": "Black Friday 2025 rules",
-            "priority": 10,
+            "precedence": 10,
             "active": true,
-            "conditions": [
-                { "scope": "query", "isEmpty": true },
-                { "scope": "time", "start": "2025-11-28T00:00:00Z", "end": "2025-11-28T23:59:59Z" }
-            ],
+            "conditions": {
+                "query": {
+                    "isEmpty": true
+                },
+                "time": {
+                    "start": "2025-11-28T00:00:00Z",
+                    "end": "2025-11-28T23:59:59Z"
+                }
+            },
             "actions": [
                 {
                     "selector": { "indexUid": "products", "id": "123" },
@@ -274,11 +284,13 @@ async fn get_rule(
         (status = OK, description = "Dynamic search rule updated.", body = DynamicSearchRule, content_type = "application/json", example = json!({
             "uid": "black-friday",
             "description": "Black Friday 2025 rules",
-            "priority": 5,
+            "precedence": 5,
             "active": true,
-            "conditions": [
-                { "scope": "query", "isEmpty": true }
-            ],
+            "conditions": {
+                "query": {
+                    "isEmpty":true
+                }
+            },
             "actions": [
                 {
                     "selector": { "indexUid": "products", "id": "123" },
