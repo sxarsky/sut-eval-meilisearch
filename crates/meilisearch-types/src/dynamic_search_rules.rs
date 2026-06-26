@@ -262,9 +262,7 @@ pub struct Selector {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[deserr(default)]
     pub index_uid: Option<IndexUid>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[deserr(default)]
-    pub id: Option<String>,
+    pub id: String,
 }
 
 #[derive(Serialize, Deserialize, Deserr, Debug, Clone, PartialEq, Eq, ToSchema)]

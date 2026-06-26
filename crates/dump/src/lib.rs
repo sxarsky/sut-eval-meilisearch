@@ -608,14 +608,14 @@ pub(crate) mod test {
                     RuleAction {
                         selector: Selector {
                             index_uid: Some("products".parse().unwrap()),
-                            id: Some("42".to_string()),
+                            id: "42".to_string(),
                         },
                         action: RuleActionKind::Pin { position: 1 },
                     },
                     RuleAction {
                         selector: Selector {
                             index_uid: Some("products".parse().unwrap()),
-                            id: Some("84".to_string()),
+                            id: "84".to_string(),
                         },
                         action: RuleActionKind::Pin { position: 3 },
                     },
