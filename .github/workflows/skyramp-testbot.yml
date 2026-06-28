@@ -35,8 +35,11 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.skyramp-testbot-app-token.outputs.token }}
 
-      - uses: skyramp/testbot@d73b19920cf3d8df3b3287c8bd95d09fd997a3d1 # v0.10.6
+      - uses: skyramp/testbot@eval-sut
         with:
           skyrampLicenseFile: ${{ secrets.SKYRAMP_LICENSE_FILE }}
           anthropicApiKey: ${{ secrets.SKYRAMP_TESTBOT_API_KEY }}
           githubToken: ${{ steps.skyramp-testbot-app-token.outputs.token }}
+          skyrampMcpVersion: v0.2.150-rc.mntnc
+          sutSetupMode: 'docker_compose'
+          enableDebug: true
