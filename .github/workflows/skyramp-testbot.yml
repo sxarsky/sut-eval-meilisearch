@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@skyramp-testbot') && github.event.comment.user.login != 'skyramp-testbot[bot]')
-    runs-on: 'ubuntu-latest'
+    runs-on: 'ubuntu-latest-large'
     permissions:
       contents: write
       pull-requests: write
@@ -41,5 +41,10 @@ jobs:
           anthropicApiKey: ${{ secrets.SKYRAMP_TESTBOT_API_KEY }}
           githubToken: ${{ steps.skyramp-testbot-app-token.outputs.token }}
           skyrampMcpVersion: v0.2.150-rc.mntnc
-          sutSetupMode: 'docker_compose'
+          sutSetupMode: 'none'
           enableDebug: true
+          targetSetupCommand: 'docker compose -f .skyramp/sut/docker-compose.testbot.yml --project-directory . up -d --build'
+          targetReadyCheckCommand: 'curl -sf http://localhost:7700/health'
+          targetReadyCheckTimeout: '1800'
+          targetTeardownCommand: 'docker compose -f .skyramp/sut/docker-compose.testbot.yml --project-directory . down -v'
+          authTokenCommand: 'bash .skyramp/sut/get-auth-token.sh'
