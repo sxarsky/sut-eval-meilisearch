@@ -1,0 +1,20 @@
+services:
+  meilisearch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXTRA_ARGS: ""
+    ports:
+      - "7700:7700"
+    environment:
+      MEILI_HTTP_ADDR: "0.0.0.0:7700"
+      MEILI_MASTER_KEY: "testbot-master-key"
+      MEILI_ENV: "development"
+      MEILI_NO_ANALYTICS: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
