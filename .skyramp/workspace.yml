@@ -1,0 +1,24 @@
+# Skyramp Workspace Configuration
+workspace:
+  repoName: sxarsky/sut-eval-meilisearch
+  repoUrl: https://github.com/sxarsky/sut-eval-meilisearch
+metadata:
+  schemaVersion: v1
+  executorVersion: v1.3.30
+  createdAt: "2026-06-29T18:43:42.756Z"
+  updatedAt: "2026-06-29T18:43:42.762Z"
+services:
+  - serviceName: meilisearch
+    language: python
+    framework: pytest
+    testDirectory: tests/skyramp
+    api:
+      schemaPath: http://localhost:7700/scalar/openapi.json
+      authType: bearer
+      authHeader: Authorization
+      baseUrl: http://localhost:7700
+    runtimeDetails:
+      serverStartCommand: docker compose -f .skyramp/sut/docker-compose.testbot.yml --project-directory . up -d --build
+      serverStopCommand: docker compose -f .skyramp/sut/docker-compose.testbot.yml --project-directory . down -v
+      runtime: docker
+      dockerNetwork: sut-eval-meilisearch_default

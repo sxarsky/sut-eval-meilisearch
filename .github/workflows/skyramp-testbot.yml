@@ -41,5 +41,11 @@ jobs:
           anthropicApiKey: ${{ secrets.SKYRAMP_TESTBOT_API_KEY }}
           githubToken: ${{ steps.skyramp-testbot-app-token.outputs.token }}
           skyrampMcpVersion: v0.2.150-rc.ldw
-          sutSetupMode: 'docker_compose'
+          sutSetupMode: 'none'
           enableDebug: true
+          targetSetupCommand: 'docker system prune -f --filter "until=1h" 2>/dev/null || true && docker compose -f .skyramp/sut/docker-compose.testbot.yml --project-directory . up -d --build'
+          targetReadyCheckCommand: 'curl -sf http://localhost:7700/health'
+          targetReadyCheckTimeout: '1800'
+          targetReadyCheckDiagnosticsCommand: 'docker compose -f .skyramp/sut/docker-compose.testbot.yml --project-directory . ps && docker compose -f .skyramp/sut/docker-compose.testbot.yml --project-directory . logs --tail=50'
+          targetTeardownCommand: 'docker compose -f .skyramp/sut/docker-compose.testbot.yml --project-directory . down -v && docker system prune -f --filter "until=1h" 2>/dev/null || true'
+          authTokenCommand: 'bash .skyramp/sut/get-auth-token.sh'
