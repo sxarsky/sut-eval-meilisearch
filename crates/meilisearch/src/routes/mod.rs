@@ -544,6 +544,8 @@ struct VersionResponse {
     commit_date: String,
     /// The version of Meilisearch.
     pkg_version: String,
+    /// The edition of Meilisearch.
+    edition: String,
 }
 
 /// Get version
@@ -586,6 +588,7 @@ async fn get_version(
             })
             .unwrap_or("unknown".into()),
         pkg_version: env!("CARGO_PKG_VERSION").to_string(),
+        edition: "community".to_string(),
     })
 }
 
