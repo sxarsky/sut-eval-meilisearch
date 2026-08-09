@@ -14,6 +14,7 @@ async fn get_version() {
     assert!(version.get("commitSha").is_some());
     assert!(version.get("commitDate").is_some());
     assert!(version.get("pkgVersion").is_some());
+    assert_eq!(version["edition"], "community");
 }
 
 #[actix_rt::test]
